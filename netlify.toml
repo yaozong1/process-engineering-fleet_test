@@ -3,8 +3,7 @@
 
 [build]
   command = "bun install && bun run build"
-  publish = "."
-  functions = ".netlify/functions"
+  publish = "out"
 
 [build.environment]
   NODE_VERSION = "18"
@@ -21,6 +20,12 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-XSS-Protection = "1; mode=block"
+
+# Client-side routing support
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 # Cache static assets
 [[headers]]

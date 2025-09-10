@@ -12,13 +12,9 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle,
-  Truck,
-  Wifi,
-  WifiOff
+  Truck
 } from "lucide-react"
 import dynamic from "next/dynamic"
-import { useAllVehicleData } from "@/hooks/use-mqtt"
-import { VehicleGPSData, VehicleBatteryData, VehicleStatusData } from "@/lib/mqtt-config"
 
 // Dynamically import map component to avoid SSR issues
 const MapComponent = dynamic(() => import("./map-component"), {
@@ -38,7 +34,6 @@ interface Vehicle {
   route?: string
 }
 
-// Mock vehicles for fallback when MQTT is not connected
 const mockVehicles: Vehicle[] = [
   {
     id: "PE-001",
@@ -97,25 +92,6 @@ const mockVehicles: Vehicle[] = [
   }
 ]
 
-function convertMQTTDataToVehicle(
-  vehicleId: string,
-  gps?: VehicleGPSData,
-  battery?: VehicleBatteryData,
-  status?: VehicleStatusData
-): Vehicle {
-  return {
-    id: vehicleId,
-    name: `Process Truck ${vehicleId.split('-')[1] || vehicleId}`,
-    lat: gps?.latitude || 0,
-    lng: gps?.longitude || 0,
-    speed: gps?.speed || status?.speed || 0,
-    battery: battery?.level || 0,
-    status: status?.status || "offline",
-    lastUpdate: status?.lastUpdate || gps?.timestamp || battery?.timestamp || "Unknown",
-    route: `Route ${vehicleId}`
-  }
-}
-
 function getStatusColor(status: Vehicle["status"]) {
   switch (status) {
     case "active": return "bg-green-500"
@@ -141,40 +117,9 @@ export function GpsTrackingDashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [isLiveTracking, setIsLiveTracking] = useState(true)
 
-  // MQTT集成
-  const {
-    isConnected: mqttConnected,
-    isConnecting: mqttConnecting,
-    error: mqttError,
-    vehicleData: mqttVehicleData,
-    connect: connectMQTT,
-    disconnect: disconnectMQTT
-  } = useAllVehicleData()
-
-  // 将MQTT数据转换为Vehicle格式
+  // Simulate real-time updates
   useEffect(() => {
-    if (mqttConnected && mqttVehicleData.size > 0) {
-      const mqttVehicles: Vehicle[] = []
-
-      mqttVehicleData.forEach((data, vehicleId) => {
-        const vehicle = convertMQTTDataToVehicle(
-          vehicleId,
-          data.gps,
-          data.battery,
-          data.status
-        )
-        mqttVehicles.push(vehicle)
-      })
-
-      if (mqttVehicles.length > 0) {
-        setVehicles(mqttVehicles)
-      }
-    }
-  }, [mqttConnected, mqttVehicleData])
-
-  // Simulate real-time updates for mock data when MQTT is not connected
-  useEffect(() => {
-    if (!isLiveTracking || mqttConnected) return
+    if (!isLiveTracking) return
 
     const interval = setInterval(() => {
       setVehicles(prev => prev.map(vehicle => {
@@ -197,7 +142,7 @@ export function GpsTrackingDashboard() {
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [isLiveTracking, mqttConnected])
+  }, [isLiveTracking])
 
   const activeVehicles = vehicles.filter(v => v.status === "active").length
   const totalVehicles = vehicles.length
@@ -205,52 +150,6 @@ export function GpsTrackingDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* MQTT状态指示器 */}
-      <Card className={`border-l-4 ${mqttConnected ? 'border-l-green-500 bg-green-50' : mqttError ? 'border-l-red-500 bg-red-50' : 'border-l-yellow-500 bg-yellow-50'}`}>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              {mqttConnected ? (
-                <Wifi className="w-5 h-5 text-green-600" />
-              ) : (
-                <WifiOff className="w-5 h-5 text-gray-500" />
-              )}
-              <div>
-                <p className="font-medium">
-                  MQTT Status: {mqttConnecting ? "Connecting..." : mqttConnected ? "Connected" : "Disconnected"}
-                </p>
-                {mqttError && (
-                  <p className="text-sm text-red-600">Error: {mqttError}</p>
-                )}
-                {!mqttConnected && !mqttError && (
-                  <p className="text-sm text-gray-600">Using simulated data</p>
-                )}
-              </div>
-            </div>
-            <div className="flex space-x-2">
-              {!mqttConnected && (
-                <Button
-                  size="sm"
-                  onClick={connectMQTT}
-                  disabled={mqttConnecting}
-                >
-                  {mqttConnecting ? "Connecting..." : "Connect MQTT"}
-                </Button>
-              )}
-              {mqttConnected && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={disconnectMQTT}
-                >
-                  Disconnect
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Real-time Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -263,11 +162,6 @@ export function GpsTrackingDashboard() {
               <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
                 <Truck className="w-4 h-4 text-green-600" />
               </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm">
-              <span className={mqttConnected ? "text-green-600" : "text-blue-600"}>
-                {mqttConnected ? "🔴 Live Data" : "📊 Simulated"}
-              </span>
             </div>
           </CardContent>
         </Card>
@@ -300,7 +194,7 @@ export function GpsTrackingDashboard() {
                 size="sm"
                 onClick={() => setIsLiveTracking(!isLiveTracking)}
               >
-                <RefreshCw className={`w-4 h-4 ${isLiveTracking && !mqttConnected ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-4 h-4 ${isLiveTracking ? "animate-spin" : ""}`} />
               </Button>
             </div>
           </CardContent>
@@ -310,17 +204,11 @@ export function GpsTrackingDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Data Source</p>
-                <p className="text-lg font-bold">
-                  {mqttConnected ? "MQTT" : "Mock"}
-                </p>
+                <p className="text-sm font-medium text-gray-600">Alerts</p>
+                <p className="text-2xl font-bold text-orange-600">2</p>
               </div>
-              <div className={`w-8 h-8 ${mqttConnected ? 'bg-green-100' : 'bg-gray-100'} rounded-lg flex items-center justify-center`}>
-                {mqttConnected ? (
-                  <CheckCircle className="w-4 h-4 text-green-600" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-gray-600" />
-                )}
+              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                <AlertCircle className="w-4 h-4 text-orange-600" />
               </div>
             </div>
           </CardContent>
@@ -335,11 +223,6 @@ export function GpsTrackingDashboard() {
             <CardTitle className="flex items-center gap-2">
               <MapPin className="w-5 h-5" />
               Real-time Vehicle Tracking
-              {mqttConnected && (
-                <Badge variant="secondary" className="bg-green-100 text-green-800">
-                  Live MQTT Data
-                </Badge>
-              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -372,9 +255,6 @@ export function GpsTrackingDashboard() {
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${getStatusColor(vehicle.status)}`} />
                       <span className="font-medium text-sm">{vehicle.id}</span>
-                      {mqttConnected && (
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Live Data" />
-                      )}
                     </div>
                     <Badge variant={getStatusBadgeVariant(vehicle.status)} className="text-xs">
                       {vehicle.status}
@@ -407,14 +287,7 @@ export function GpsTrackingDashboard() {
       {selectedVehicle && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Vehicle Details - {selectedVehicle.id}
-              {mqttConnected && (
-                <Badge variant="secondary" className="bg-green-100 text-green-800">
-                  Live Data
-                </Badge>
-              )}
-            </CardTitle>
+            <CardTitle>Vehicle Details - {selectedVehicle.id}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

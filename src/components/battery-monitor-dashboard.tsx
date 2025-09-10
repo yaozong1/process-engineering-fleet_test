@@ -15,13 +15,9 @@ import {
   RefreshCw,
   Activity,
   Clock,
-  Thermometer,
-  Wifi,
-  WifiOff
+  Thermometer
 } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts"
-import { useAllVehicleData } from "@/hooks/use-mqtt"
-import { VehicleBatteryData } from "@/lib/mqtt-config"
 
 interface BatteryData {
   vehicleId: string
@@ -43,7 +39,6 @@ interface BatteryHistoryPoint {
   temperature: number
 }
 
-// Mock battery data for fallback
 const mockBatteryData: BatteryData[] = [
   {
     vehicleId: "PE-001",
@@ -107,38 +102,6 @@ const mockBatteryData: BatteryData[] = [
   }
 ]
 
-// Convert MQTT battery data to local format
-function convertMQTTBatteryData(mqttData: VehicleBatteryData): BatteryData {
-  const alerts: string[] = []
-
-  if (mqttData.level < 20) {
-    alerts.push("Low Battery")
-  } else if (mqttData.level < 50) {
-    alerts.push("Moderate Battery")
-  }
-
-  if (mqttData.temperature > 40) {
-    alerts.push("High Temperature")
-  }
-
-  if (mqttData.health < 80) {
-    alerts.push("Battery Health Low")
-  }
-
-  return {
-    vehicleId: mqttData.vehicleId,
-    currentLevel: mqttData.level,
-    voltage: mqttData.voltage,
-    temperature: mqttData.temperature,
-    health: mqttData.health,
-    cycleCount: mqttData.cycleCount,
-    estimatedRange: mqttData.estimatedRange,
-    chargingStatus: mqttData.chargingStatus,
-    lastProbe: "Live data",
-    alerts
-  }
-}
-
 // Generate mock historical data
 const generateHistoryData = (vehicleId: string): BatteryHistoryPoint[] => {
   const data: BatteryHistoryPoint[] = []
@@ -183,42 +146,12 @@ export function BatteryMonitorDashboard() {
   const [historyData, setHistoryData] = useState<BatteryHistoryPoint[]>([])
   const [isProbing, setIsProbing] = useState(false)
 
-  // MQTT集成
-  const {
-    isConnected: mqttConnected,
-    isConnecting: mqttConnecting,
-    error: mqttError,
-    vehicleData: mqttVehicleData,
-    connect: connectMQTT,
-    disconnect: disconnectMQTT
-  } = useAllVehicleData()
-
-  // 将MQTT数据转换为电池数据格式
-  useEffect(() => {
-    if (mqttConnected && mqttVehicleData.size > 0) {
-      const mqttBatteryData: BatteryData[] = []
-
-      mqttVehicleData.forEach((data, vehicleId) => {
-        if (data.battery) {
-          const batteryInfo = convertMQTTBatteryData(data.battery)
-          mqttBatteryData.push(batteryInfo)
-        }
-      })
-
-      if (mqttBatteryData.length > 0) {
-        setBatteryData(mqttBatteryData)
-      }
-    }
-  }, [mqttConnected, mqttVehicleData])
-
   useEffect(() => {
     setHistoryData(generateHistoryData(selectedVehicle))
   }, [selectedVehicle])
 
-  // Simulate real-time battery probing for mock data
+  // Simulate real-time battery probing
   useEffect(() => {
-    if (mqttConnected) return // Don't simulate if MQTT is connected
-
     const interval = setInterval(() => {
       setBatteryData(prev => prev.map(battery => {
         const change = (Math.random() - 0.5) * 2 // ±1% change
@@ -235,7 +168,7 @@ export function BatteryMonitorDashboard() {
     }, 5000)
 
     return () => clearInterval(interval)
-  }, [mqttConnected])
+  }, [])
 
   const probeAllBatteries = async () => {
     setIsProbing(true)
@@ -259,52 +192,6 @@ export function BatteryMonitorDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* MQTT状态指示器 */}
-      <Card className={`border-l-4 ${mqttConnected ? 'border-l-green-500 bg-green-50' : mqttError ? 'border-l-red-500 bg-red-50' : 'border-l-yellow-500 bg-yellow-50'}`}>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              {mqttConnected ? (
-                <Wifi className="w-5 h-5 text-green-600" />
-              ) : (
-                <WifiOff className="w-5 h-5 text-gray-500" />
-              )}
-              <div>
-                <p className="font-medium">
-                  MQTT Battery Data: {mqttConnecting ? "Connecting..." : mqttConnected ? "Live" : "Simulated"}
-                </p>
-                {mqttError && (
-                  <p className="text-sm text-red-600">Error: {mqttError}</p>
-                )}
-                {!mqttConnected && !mqttError && (
-                  <p className="text-sm text-gray-600">Using mock battery data</p>
-                )}
-              </div>
-            </div>
-            <div className="flex space-x-2">
-              {!mqttConnected && (
-                <Button
-                  size="sm"
-                  onClick={connectMQTT}
-                  disabled={mqttConnecting}
-                >
-                  {mqttConnecting ? "Connecting..." : "Connect MQTT"}
-                </Button>
-              )}
-              {mqttConnected && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={disconnectMQTT}
-                >
-                  Disconnect
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Battery Overview Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -317,11 +204,6 @@ export function BatteryMonitorDashboard() {
               <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
                 <Battery className="w-4 h-4 text-green-600" />
               </div>
-            </div>
-            <div className="mt-2 flex items-center text-sm">
-              <span className={mqttConnected ? "text-green-600" : "text-blue-600"}>
-                {mqttConnected ? "🔴 Live" : "📊 Mock"}
-              </span>
             </div>
           </CardContent>
         </Card>
@@ -363,7 +245,7 @@ export function BatteryMonitorDashboard() {
                   variant="outline"
                   size="sm"
                   onClick={probeAllBatteries}
-                  disabled={isProbing || mqttConnected}
+                  disabled={isProbing}
                   className="mt-1"
                 >
                   {isProbing ? (
@@ -371,7 +253,7 @@ export function BatteryMonitorDashboard() {
                   ) : (
                     <Activity className="w-4 h-4" />
                   )}
-                  {mqttConnected ? "Live" : isProbing ? "Probing..." : "Probe All"}
+                  {isProbing ? "Probing..." : "Probe All"}
                 </Button>
               </div>
             </div>
@@ -384,14 +266,7 @@ export function BatteryMonitorDashboard() {
         {/* Individual Battery Status */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Vehicle Battery Status
-              {mqttConnected && (
-                <Badge variant="secondary" className="bg-green-100 text-green-800">
-                  Live MQTT Data
-                </Badge>
-              )}
-            </CardTitle>
+            <CardTitle>Vehicle Battery Status</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -409,9 +284,6 @@ export function BatteryMonitorDashboard() {
                     <div className="flex items-center gap-2">
                       {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
                       <span className="font-medium">{battery.vehicleId}</span>
-                      {mqttConnected && (
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Live Data" />
-                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-lg font-bold ${getBatteryColor(battery.currentLevel)}`}>
@@ -489,14 +361,7 @@ export function BatteryMonitorDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                Battery Health - {selectedVehicle}
-                {mqttConnected && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
-                    Live
-                  </Badge>
-                )}
-              </CardTitle>
+              <CardTitle>Battery Health - {selectedVehicle}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">

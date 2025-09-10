@@ -1,7 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { useState } from "react"
 import { LoginPage } from "@/components/login-page"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardNavigation, type NavigationTab } from "@/components/dashboard-navigation"
@@ -10,37 +9,8 @@ import { GpsTrackingDashboard } from "@/components/gps-tracking-dashboard"
 import { BatteryMonitorDashboard } from "@/components/battery-monitor-dashboard"
 
 export default function FleetManagerPage() {
-  const pathname = usePathname()
-  const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-
-  // 从URL路径中设置初始选项卡（深度链接）
-  const initialTab = (() => {
-    switch (pathname) {
-      case "/gps-tracking":
-        return "gps-tracking"
-      case "/battery-monitor":
-        return "battery-monitor"
-      case "/vehicles":
-        return "vehicles"
-      case "/drivers":
-        return "drivers"
-      case "/maintenance":
-        return "maintenance"
-      case "/routes":
-        return "routes"
-      case "/fuel":
-        return "fuel"
-      case "/expenses":
-        return "expenses"
-      case "/reports":
-        return "reports"
-      default:
-        return "overview"
-    }
-  })()
-
-  const [activeTab, setActiveTab] = useState<NavigationTab>(initialTab as NavigationTab)
+  const [activeTab, setActiveTab] = useState<NavigationTab>("overview")
 
   const handleLogin = () => {
     setIsAuthenticated(true)
@@ -48,15 +18,10 @@ export default function FleetManagerPage() {
 
   const handleLogout = () => {
     setIsAuthenticated(false)
-    setActiveTab("overview")
-    router.push("/")
+    setActiveTab("overview") // Reset to overview when logging out
   }
 
-  const onTabChange = (tab: NavigationTab) => {
-    setActiveTab(tab)
-    router.push(tab === "overview" ? "/" : `/${tab}`)
-  }
-
+  // Show login page if not authenticated
   if (!isAuthenticated) {
     return <LoginPage onLogin={handleLogin} />
   }
@@ -126,8 +91,13 @@ export default function FleetManagerPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader onLogout={handleLogout} />
-      <DashboardNavigation activeTab={activeTab} onTabChange={onTabChange} />
-      <main className="p-6">{renderDashboard()}</main>
+      <DashboardNavigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
+      <main className="p-6">
+        {renderDashboard()}
+      </main>
     </div>
   )
 }

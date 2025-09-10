@@ -113,7 +113,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </div>
 
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2"></h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
             <p className="text-gray-600">Sign in to your fleet management dashboard</p>
           </div>
 
