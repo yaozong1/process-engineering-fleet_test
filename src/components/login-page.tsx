@@ -122,7 +122,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <form onSubmit={handleLogin} className="space-y-6">
                 <div className="space-y-2">
                   <label htmlFor="email" className="text-sm font-medium text-gray-700">
-                    Username/Email
+                    Email address
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -193,7 +193,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
               <div className="mt-6 text-center">
                 <p className="text-sm text-gray-600">
-                  
+                  Demo credentials: admin@processengineering.com / admin123
                 </p>
               </div>
             </CardContent>
