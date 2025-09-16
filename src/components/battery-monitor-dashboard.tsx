@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import mqtt, { MqttClient } from "mqtt"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +40,7 @@ interface BatteryHistoryPoint {
   temperature: number
 }
 
+// Initial mock data for other vehicles; PE-001 will be overridden by MQTT if messages arrive.
 const mockBatteryData: BatteryData[] = [
   {
     vehicleId: "PE-001",
@@ -145,30 +147,117 @@ export function BatteryMonitorDashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<string>("PE-001")
   const [historyData, setHistoryData] = useState<BatteryHistoryPoint[]>([])
   const [isProbing, setIsProbing] = useState(false)
+  const mqttRef = useRef<MqttClient | null>(null)
+  const [mqttStatus, setMqttStatus] = useState<'idle'|'connecting'|'connected'|'error'>('idle')
+  const lastTelemetryRef = useRef<number | null>(null)
+
+  // Config via env (must be NEXT_PUBLIC_ to be exposed client-side)
+  const MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || '' // e.g. wss://xxxxx.hivemq.cloud:8884/mqtt
+  const MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
+  const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
+  const PRODUCT_KEY = process.env.NEXT_PUBLIC_PRODUCT_KEY || 'i0skgstk2Ek'
+  const DEVICE_NAME = process.env.NEXT_PUBLIC_DEVICE_NAME || 'PE-001'
+
+  // Topic design:
+  // telemetry: fleet/<productKey>/<deviceName>/telemetry
+  // status:    fleet/<productKey>/<deviceName>/status
+  const TELEMETRY_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/telemetry`
+  const STATUS_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/status`
 
   useEffect(() => {
     setHistoryData(generateHistoryData(selectedVehicle))
   }, [selectedVehicle])
 
-  // Simulate real-time battery probing
+  // Simulated probing for non-MQTT vehicles only
   useEffect(() => {
     const interval = setInterval(() => {
       setBatteryData(prev => prev.map(battery => {
-        const change = (Math.random() - 0.5) * 2 // ±1% change
+        if (battery.vehicleId === DEVICE_NAME) return battery
+        const change = (Math.random() - 0.5) * 2
         const newLevel = Math.max(0, Math.min(100, battery.currentLevel + change))
-
         return {
           ...battery,
           currentLevel: newLevel,
-          voltage: 11.5 + (newLevel / 100) * 2 + (Math.random() - 0.5) * 0.2,
-          temperature: battery.temperature + (Math.random() - 0.5) * 2,
-          lastProbe: "Just now"
+            voltage: 11.5 + (newLevel / 100) * 2 + (Math.random() - 0.5) * 0.2,
+            temperature: battery.temperature + (Math.random() - 0.5) * 2,
+            lastProbe: "Just now"
         }
       }))
     }, 5000)
-
     return () => clearInterval(interval)
-  }, [])
+  }, [DEVICE_NAME])
+
+  // MQTT connect + subscribe
+  useEffect(() => {
+    if (!MQTT_URL) return
+    setMqttStatus('connecting')
+    try {
+      const client = mqtt.connect(MQTT_URL, {
+        clientId: `dashboard_${Math.random().toString(36).slice(2,10)}`,
+        username: MQTT_USERNAME || undefined,
+        password: MQTT_PASSWORD || undefined,
+        clean: true,
+        reconnectPeriod: 5000,
+        protocolVersion: 4
+      })
+      mqttRef.current = client
+      client.on('connect', () => { setMqttStatus('connected'); client.subscribe([TELEMETRY_TOPIC, STATUS_TOPIC]) })
+      client.on('error', () => setMqttStatus('error'))
+      client.on('message', (topic, payload) => {
+        if (topic === TELEMETRY_TOPIC) {
+          try {
+            const json = JSON.parse(payload.toString()) as any
+            lastTelemetryRef.current = Date.now()
+            setBatteryData(prev => {
+              let found = false
+              const updated = prev.map(b => {
+                if (b.vehicleId !== DEVICE_NAME) return b
+                found = true
+                const level = typeof json.soc === 'number' ? json.soc : b.currentLevel
+                const voltage = typeof json.voltage === 'number' ? json.voltage : b.voltage
+                const temperature = typeof json.temperature === 'number' ? json.temperature : b.temperature
+                const health = typeof json.health === 'number' ? json.health : b.health
+                const cycleCount = typeof json.cycleCount === 'number' ? json.cycleCount : b.cycleCount
+                const estimatedRange = typeof json.estimatedRangeKm === 'number' ? json.estimatedRangeKm : b.estimatedRange
+                const chargingStatus = (json.chargingStatus || b.chargingStatus) as BatteryData['chargingStatus']
+                const alerts = Array.isArray(json.alerts) ? json.alerts as string[] : b.alerts
+                return { ...b, currentLevel: level, voltage, temperature, health, cycleCount, estimatedRange, chargingStatus, alerts, lastProbe: 'Just now' }
+              })
+              if (!found) {
+                updated.push({ vehicleId: DEVICE_NAME, currentLevel: json.soc ?? 0, voltage: json.voltage ?? 0, temperature: json.temperature ?? 0, health: json.health ?? 0, cycleCount: json.cycleCount ?? 0, estimatedRange: json.estimatedRangeKm ?? 0, chargingStatus: (json.chargingStatus || 'idle'), lastProbe: 'Just now', alerts: Array.isArray(json.alerts) ? json.alerts : [] })
+              }
+              return updated
+            })
+          } catch { /* ignore parse errors */ }
+        } else if (topic === STATUS_TOPIC) {
+          const statusTxt = payload.toString().trim().toLowerCase()
+          setBatteryData(prev => prev.map(b => {
+            if (b.vehicleId !== DEVICE_NAME) return b
+            return { ...b, lastProbe: statusTxt === 'online' ? 'Just now' : 'offline' }
+          }))
+        }
+      })
+    } catch {
+      setMqttStatus('error')
+    }
+    return () => { mqttRef.current?.end(true); mqttRef.current = null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, TELEMETRY_TOPIC, STATUS_TOPIC])
+
+  // Staleness detection -> add alert after 60s silence.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const last = lastTelemetryRef.current
+      if (!last) return
+      if (Date.now() - last > 60000) {
+        setBatteryData(prev => prev.map(b => {
+          if (b.vehicleId !== DEVICE_NAME) return b
+          return { ...b, alerts: b.alerts.includes('No recent telemetry') ? b.alerts : [...b.alerts, 'No recent telemetry'] }
+        }))
+      }
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [DEVICE_NAME])
 
   const probeAllBatteries = async () => {
     setIsProbing(true)
@@ -189,6 +278,7 @@ export function BatteryMonitorDashboard() {
   const alertCount = batteryData.reduce((sum, b) => sum + b.alerts.length, 0)
 
   const selectedBattery = batteryData.find(b => b.vehicleId === selectedVehicle)
+  const mqttStatusBadge = (<span className="text-xs ml-2">MQTT: {mqttStatus}</span>)
 
   return (
     <div className="space-y-6">
@@ -205,6 +295,7 @@ export function BatteryMonitorDashboard() {
                 <Battery className="w-4 h-4 text-green-600" />
               </div>
             </div>
+            {mqttStatusBadge}
           </CardContent>
         </Card>
 
