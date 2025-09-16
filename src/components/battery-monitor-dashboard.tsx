@@ -189,7 +189,11 @@ export function BatteryMonitorDashboard() {
 
   // MQTT connect + subscribe
   useEffect(() => {
-    if (!MQTT_URL) return
+    if (!MQTT_URL) {
+      // 生产构建中未注入 URL -> 可能是 Netlify 未配置环境变量或部署前未设置
+      if (mqttStatus === 'idle') console.warn('[BatteryDashboard] MQTT_URL missing: skip connect')
+      return
+    }
     setMqttStatus('connecting')
     try {
       const client = mqtt.connect(MQTT_URL, {
@@ -278,7 +282,8 @@ export function BatteryMonitorDashboard() {
   const alertCount = batteryData.reduce((sum, b) => sum + b.alerts.length, 0)
 
   const selectedBattery = batteryData.find(b => b.vehicleId === selectedVehicle)
-  const mqttStatusBadge = (<span className="text-xs ml-2">MQTT: {mqttStatus}</span>)
+  const mqttConfigHint = !MQTT_URL ? 'no-url' : (!MQTT_USERNAME && !MQTT_PASSWORD ? 'no-auth' : '')
+  const mqttStatusBadge = (<span className="text-xs ml-2">MQTT: {mqttStatus}{mqttConfigHint && ` (${mqttConfigHint})`}</span>)
 
   return (
     <div className="space-y-6">
