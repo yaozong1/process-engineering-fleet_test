@@ -2,8 +2,8 @@
   remote_images = ["https://source.unsplash.com/.*", "https://images.unsplash.com/.*", "https://ext.same-assets.com/.*", "https://ugc.same-assets.com/.*", "https://cdnjs.cloudflare.com/.*"]
 
 [build]
-  command = "bun install && bun run build"
-  publish = "out"
+  command = "npm ci && npm run build"
+  publish = ".next"
 
 [build.environment]
   NODE_VERSION = "18"
@@ -22,10 +22,7 @@
     X-XSS-Protection = "1; mode=block"
 
 # Client-side routing support
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# SSR 路由交由 Next.js 处理，移除单页 index.html 重写
 
 # Cache static assets
 [[headers]]
