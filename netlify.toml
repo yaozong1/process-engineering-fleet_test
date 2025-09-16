@@ -6,8 +6,8 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "18"
-  NPM_FLAGS = "--prefix=/dev/null"
+  NODE_VERSION = "20"
+  # 已移除错误的 NPM_FLAGS (之前指向 /dev/null 导致 npm mkdir 失败)
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
