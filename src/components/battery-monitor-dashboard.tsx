@@ -40,18 +40,18 @@ interface BatteryHistoryPoint {
   temperature: number
 }
 
-// Initial mock data for other vehicles; PE-001 will be overridden by MQTT if messages arrive.
+// Initial mock data for other vehicles; PE-001 will be overridden by Redis data
 const mockBatteryData: BatteryData[] = [
   {
     vehicleId: "PE-001",
-    currentLevel: 78,
-    voltage: 12.6,
-    temperature: 32,
-    health: 95,
-    cycleCount: 1247,
-    estimatedRange: 156,
-    chargingStatus: "discharging",
-    lastProbe: "30 secs ago",
+    currentLevel: 0, // Will be loaded from Redis
+    voltage: 0,      // Will be loaded from Redis
+    temperature: 0,  // Will be loaded from Redis
+    health: 0,       // Will be loaded from Redis
+    cycleCount: 0,   // Will be loaded from Redis
+    estimatedRange: 0, // Will be loaded from Redis
+    chargingStatus: "idle", // Will be loaded from Redis
+    lastProbe: "Loading from Redis...",
     alerts: []
   },
   {
@@ -150,6 +150,8 @@ export function BatteryMonitorDashboard() {
   const mqttRef = useRef<MqttClient | null>(null)
   const [mqttStatus, setMqttStatus] = useState<'idle'|'connecting'|'connected'|'error'>('idle')
   const lastTelemetryRef = useRef<number | null>(null)
+  // 环形历史缓冲：仅针对来自 MQTT 的 DEVICE_NAME 设备，保存最近 200 条 (level/voltage/temperature)
+  const deviceHistoryRef = useRef<BatteryHistoryPoint[]>([])
 
   // Config via env (must be NEXT_PUBLIC_ to be exposed client-side)
   const MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || '' // e.g. wss://xxxxx.hivemq.cloud:8884/mqtt
@@ -158,21 +160,153 @@ export function BatteryMonitorDashboard() {
   const PRODUCT_KEY = process.env.NEXT_PUBLIC_PRODUCT_KEY || 'i0skgstk2Ek'
   const DEVICE_NAME = process.env.NEXT_PUBLIC_DEVICE_NAME || 'PE-001'
 
+  // 可配置：最大条数 & 最长保留时间（毫秒，0 表示不按时间裁剪）
+  const MAX_HISTORY = 200 // 本地环形总容量仍保留 200
+  const INITIAL_LOAD_LIMIT = 100 // 刷新后初始只加载服务器最近 100 条
+  const MAX_AGE_MS = 0 // 例如想限制 2 小时可设为 2 * 60 * 60 * 1000
+  const LS_KEY = `battery_history_${DEVICE_NAME}`
+
+  // 初始恢复 localStorage 中缓存（仅客户端执行）
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(LS_KEY) : null
+      if (raw) {
+        const parsed = JSON.parse(raw) as BatteryHistoryPoint[]
+        if (Array.isArray(parsed)) {
+          let arr = parsed
+          if (MAX_AGE_MS > 0) {
+            // time trimming skipped
+          }
+          if (arr.length > MAX_HISTORY) arr = arr.slice(-MAX_HISTORY)
+          deviceHistoryRef.current = arr
+          if (selectedVehicle === DEVICE_NAME) setHistoryData([...arr])
+          // Use last local history value to seed currentLevel
+          const last = arr[arr.length - 1]
+          if (last) {
+            setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? { 
+              ...b, 
+              currentLevel: last.level, 
+              voltage: last.voltage, 
+              temperature: last.temperature,
+              lastProbe: 'From localStorage'
+            } : b))
+          }
+        }
+      }
+    } catch { /* ignore */ }
+    ;(async () => {
+      try {
+        console.log('[BatteryDashboard] fetching initial history...')
+        const res = await fetch(`/api/telemetry?device=${DEVICE_NAME}&limit=${INITIAL_LOAD_LIMIT}`, { cache: 'no-store' })
+        console.log('[BatteryDashboard] fetch response status:', res.status, res.ok)
+        if (res.ok) {
+          const json = await res.json()
+          console.log('[BatteryDashboard] initial fetch response:', json)
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            console.log('[BatteryDashboard] initial data array length:', json.data.length)
+            // json.data: [{device, ts, soc, voltage, temperature, health, cycleCount, estimatedRangeKm, chargingStatus, alerts}]
+            const serverArr: BatteryHistoryPoint[] = json.data.map((d: any) => ({
+              time: new Date(d.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              level: typeof d.soc === 'number' ? d.soc : 0,
+              voltage: typeof d.voltage === 'number' ? d.voltage : 0,
+              temperature: typeof d.temperature === 'number' ? d.temperature : 0
+            }))
+            console.log('[BatteryDashboard] initial mapped serverArr:', serverArr)
+            let merged = serverArr
+            if (merged.length > MAX_HISTORY) merged = merged.slice(-MAX_HISTORY)
+            deviceHistoryRef.current = merged
+            if (typeof window !== 'undefined') {
+              try { window.localStorage.setItem(LS_KEY, JSON.stringify(merged)) } catch {}
+            }
+            if (selectedVehicle === DEVICE_NAME) setHistoryData([...merged])
+            // Update PE-001 with complete data from last server record
+            const last = json.data[json.data.length - 1]
+            console.log('[BatteryDashboard] initial last data point:', last)
+            if (last) {
+              console.log('[BatteryDashboard] initial updating complete data from Redis')
+              setBatteryData(prev => {
+                const updated = prev.map(b => b.vehicleId === DEVICE_NAME ? {
+                  ...b,
+                  currentLevel: typeof last.soc === 'number' ? last.soc : b.currentLevel,
+                  voltage: typeof last.voltage === 'number' ? last.voltage : b.voltage,
+                  temperature: typeof last.temperature === 'number' ? last.temperature : b.temperature,
+                  health: typeof last.health === 'number' ? last.health : b.health,
+                  cycleCount: typeof last.cycleCount === 'number' ? last.cycleCount : b.cycleCount,
+                  estimatedRange: typeof last.estimatedRangeKm === 'number' ? last.estimatedRangeKm : b.estimatedRange,
+                  chargingStatus: typeof last.chargingStatus === 'string' ? last.chargingStatus as BatteryData['chargingStatus'] : b.chargingStatus,
+                  alerts: Array.isArray(last.alerts) ? last.alerts : b.alerts,
+                  lastProbe: 'From Redis'
+                } : b)
+                console.log('[BatteryDashboard] initial updated batteryData:', updated)
+                return updated
+              })
+            }
+          } else {
+            console.log('[BatteryDashboard] No data returned from Redis, using fallback values')
+            setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+              ...b,
+              currentLevel: 75, // Fallback value for testing
+              voltage: 12.2,    // Fallback value for testing
+              temperature: 26,  // Fallback value for testing
+              health: 95,       // Fallback value for testing
+              cycleCount: 234,  // Fallback value for testing
+              estimatedRange: 250, // Fallback value for testing
+              chargingStatus: 'idle' as BatteryData['chargingStatus'],
+              lastProbe: 'No Redis data - using fallback'
+            } : b))
+          }
+        } else {
+          console.error('[BatteryDashboard] fetch failed with status:', res.status)
+          setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+            ...b,
+            currentLevel: 60, // Fallback value for API error
+            voltage: 11.9,    // Fallback value for API error
+            temperature: 29,  // Fallback value for API error
+            health: 92,       // Fallback value for API error
+            cycleCount: 156,  // Fallback value for API error
+            estimatedRange: 180, // Fallback value for API error
+            chargingStatus: 'idle' as BatteryData['chargingStatus'],
+            lastProbe: `Redis fetch error: ${res.status} - using fallback`
+          } : b))
+        }
+      } catch (e) {
+        console.error('[BatteryDashboard] fetch shared history failed', e)
+        setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+          ...b,
+          currentLevel: 45, // Fallback value for network error
+          voltage: 11.7,    // Fallback value for network error
+          temperature: 32,  // Fallback value for network error
+          health: 89,       // Fallback value for network error
+          cycleCount: 89,   // Fallback value for network error
+          estimatedRange: 135, // Fallback value for network error
+          chargingStatus: 'idle' as BatteryData['chargingStatus'],
+          lastProbe: `Redis error: ${e instanceof Error ? e.message : 'Unknown error'} - using fallback`
+        } : b))
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Topic design:
   // telemetry: fleet/<productKey>/<deviceName>/telemetry
   // status:    fleet/<productKey>/<deviceName>/status
   const TELEMETRY_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/telemetry`
   const STATUS_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/status`
 
+  // 当切换选中车辆时：如果是 MQTT 设备 -> 使用实时环形历史；否则生成模拟历史
   useEffect(() => {
-    setHistoryData(generateHistoryData(selectedVehicle))
-  }, [selectedVehicle])
+    if (selectedVehicle === DEVICE_NAME) {
+      setHistoryData([...deviceHistoryRef.current])
+    } else {
+      setHistoryData(generateHistoryData(selectedVehicle))
+    }
+  }, [selectedVehicle, DEVICE_NAME])
 
-  // Simulated probing for non-MQTT vehicles only
+  // Simulated probing for non-MQTT vehicles only (PE-001 uses Redis data)
   useEffect(() => {
     const interval = setInterval(() => {
       setBatteryData(prev => prev.map(battery => {
-        if (battery.vehicleId === DEVICE_NAME) return battery
+        if (battery.vehicleId === DEVICE_NAME) return battery // Skip PE-001, use Redis data only
         const change = (Math.random() - 0.5) * 2
         const newLevel = Math.max(0, Math.min(100, battery.currentLevel + change))
         return {
@@ -212,6 +346,9 @@ export function BatteryMonitorDashboard() {
           try {
             const json = JSON.parse(payload.toString()) as any
             lastTelemetryRef.current = Date.now()
+            let histLevel: number | undefined
+            let histVoltage: number | undefined
+            let histTemperature: number | undefined
             setBatteryData(prev => {
               let found = false
               const updated = prev.map(b => {
@@ -225,10 +362,61 @@ export function BatteryMonitorDashboard() {
                 const estimatedRange = typeof json.estimatedRangeKm === 'number' ? json.estimatedRangeKm : b.estimatedRange
                 const chargingStatus = (json.chargingStatus || b.chargingStatus) as BatteryData['chargingStatus']
                 const alerts = Array.isArray(json.alerts) ? json.alerts as string[] : b.alerts
+                histLevel = level; histVoltage = voltage; histTemperature = temperature
                 return { ...b, currentLevel: level, voltage, temperature, health, cycleCount, estimatedRange, chargingStatus, alerts, lastProbe: 'Just now' }
               })
               if (!found) {
-                updated.push({ vehicleId: DEVICE_NAME, currentLevel: json.soc ?? 0, voltage: json.voltage ?? 0, temperature: json.temperature ?? 0, health: json.health ?? 0, cycleCount: json.cycleCount ?? 0, estimatedRange: json.estimatedRangeKm ?? 0, chargingStatus: (json.chargingStatus || 'idle'), lastProbe: 'Just now', alerts: Array.isArray(json.alerts) ? json.alerts : [] })
+                histLevel = json.soc ?? 0
+                histVoltage = json.voltage ?? 0
+                histTemperature = json.temperature ?? 0
+                updated.push({ 
+                  vehicleId: DEVICE_NAME, 
+                  currentLevel: histLevel, 
+                  voltage: histVoltage, 
+                  temperature: histTemperature, 
+                  health: json.health ?? 95, 
+                  cycleCount: json.cycleCount ?? 0, 
+                  estimatedRange: json.estimatedRangeKm ?? 0, 
+                  chargingStatus: (json.chargingStatus || 'idle'), 
+                  lastProbe: 'Just now', 
+                  alerts: Array.isArray(json.alerts) ? json.alerts : [] 
+                })
+              }
+              // 更新环形历史（仅针对目标设备）
+              if (histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
+                const arr = deviceHistoryRef.current
+                arr.push({
+                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                  level: histLevel,
+                  voltage: histVoltage,
+                  temperature: histTemperature
+                })
+                if (arr.length > MAX_HISTORY) arr.shift()
+                // 写入 localStorage（轻量，200 条以内）
+                try { if (typeof window !== 'undefined') window.localStorage.setItem(LS_KEY, JSON.stringify(arr)) } catch { /* ignore */ }
+                // 转发完整telemetry到共享历史
+                try {
+                  fetch('/api/telemetry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      device: DEVICE_NAME,
+                      ts: Date.now(),
+                      soc: histLevel,
+                      voltage: histVoltage,
+                      temperature: histTemperature,
+                      health: json.health,
+                      cycleCount: json.cycleCount,
+                      estimatedRangeKm: json.estimatedRangeKm,
+                      chargingStatus: json.chargingStatus,
+                      alerts: json.alerts
+                    })
+                  }).catch(() => {})
+                } catch { /* ignore */ }
+                if (selectedVehicle === DEVICE_NAME) {
+                  // 触发图表刷新
+                  setHistoryData([...arr])
+                }
               }
               return updated
             })
@@ -248,12 +436,12 @@ export function BatteryMonitorDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, TELEMETRY_TOPIC, STATUS_TOPIC])
 
-  // Staleness detection -> add alert after 60s silence.
+  // Staleness detection -> add alert after 10 minutes (600000 ms) silence.
   useEffect(() => {
     const interval = setInterval(() => {
       const last = lastTelemetryRef.current
       if (!last) return
-      if (Date.now() - last > 60000) {
+  if (Date.now() - last > 600000) {
         setBatteryData(prev => prev.map(b => {
           if (b.vehicleId !== DEVICE_NAME) return b
           return { ...b, alerts: b.alerts.includes('No recent telemetry') ? b.alerts : [...b.alerts, 'No recent telemetry'] }
@@ -284,6 +472,78 @@ export function BatteryMonitorDashboard() {
   const selectedBattery = batteryData.find(b => b.vehicleId === selectedVehicle)
   const mqttConfigHint = !MQTT_URL ? 'no-url' : (!MQTT_USERNAME && !MQTT_PASSWORD ? 'no-auth' : '')
   const mqttStatusBadge = (<span className="text-xs ml-2">MQTT: {mqttStatus}{mqttConfigHint && ` (${mqttConfigHint})`}</span>)
+
+  // 手动重新加载历史数据（公开函数，可供外部调用）
+  const manualReloadHistory = async () => {
+    try {
+      console.log('[BatteryDashboard] manual reload history from server')
+      const res = await fetch(`/api/telemetry?device=${DEVICE_NAME}&limit=${INITIAL_LOAD_LIMIT}&_t=${Date.now()}`)
+      console.log('[BatteryDashboard] manual reload response status:', res.status, res.ok)
+      if (!res.ok) { 
+        console.warn('history reload http error', res.status)
+        setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+          ...b,
+          lastProbe: `Reload failed: HTTP ${res.status}`
+        } : b))
+        return 
+      }
+      const json = await res.json()
+      console.log('[BatteryDashboard] received data:', json)
+      if (Array.isArray(json.data) && json.data.length > 0) {
+        console.log('[BatteryDashboard] data array length:', json.data.length)
+        const serverArr: BatteryHistoryPoint[] = json.data.map((d: any) => ({
+          time: new Date(d.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          level: typeof d.soc === 'number' ? d.soc : 0,
+          voltage: typeof d.voltage === 'number' ? d.voltage : 0,
+          temperature: typeof d.temperature === 'number' ? d.temperature : 0
+        }))
+        console.log('[BatteryDashboard] mapped serverArr:', serverArr)
+        deviceHistoryRef.current = serverArr
+        try { window.localStorage.setItem(LS_KEY, JSON.stringify(serverArr)) } catch {}
+        if (selectedVehicle === DEVICE_NAME) setHistoryData([...serverArr])
+        const last = json.data[json.data.length - 1]
+        console.log('[BatteryDashboard] last data point:', last)
+        if (last) {
+          console.log('[BatteryDashboard] updating complete data from Redis')
+          setBatteryData(prev => {
+            const updated = prev.map(b => b.vehicleId === DEVICE_NAME ? {
+              ...b,
+              currentLevel: typeof last.soc === 'number' ? last.soc : b.currentLevel,
+              voltage: typeof last.voltage === 'number' ? last.voltage : b.voltage,
+              temperature: typeof last.temperature === 'number' ? last.temperature : b.temperature,
+              health: typeof last.health === 'number' ? last.health : b.health,
+              cycleCount: typeof last.cycleCount === 'number' ? last.cycleCount : b.cycleCount,
+              estimatedRange: typeof last.estimatedRangeKm === 'number' ? last.estimatedRangeKm : b.estimatedRange,
+              chargingStatus: typeof last.chargingStatus === 'string' ? last.chargingStatus as BatteryData['chargingStatus'] : b.chargingStatus,
+              alerts: Array.isArray(last.alerts) ? last.alerts : b.alerts,
+              lastProbe: 'From Redis (reload)'
+            } : b)
+            console.log('[BatteryDashboard] updated batteryData:', updated)
+            return updated
+          })
+        }
+      } else {
+        console.warn('[BatteryDashboard] No data in reload response:', json)
+        setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+          ...b,
+          lastProbe: 'Reload: No data found'
+        } : b))
+      }
+    } catch (e) {
+      console.error('[BatteryDashboard] manual reload failed', e)
+      setBatteryData(prev => prev.map(b => b.vehicleId === DEVICE_NAME ? {
+        ...b,
+        lastProbe: `Reload error: ${e instanceof Error ? e.message : 'Unknown'}`
+      } : b))
+    }
+  }
+
+  // 将reload函数挂载到window对象，方便调试
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).reloadBatteryData = manualReloadHistory;
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -429,8 +689,11 @@ export function BatteryMonitorDashboard() {
 
         {/* Battery History Chart */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Battery History - {selectedVehicle}</CardTitle>
+            {selectedVehicle === DEVICE_NAME && historyData.length === 0 && (
+              <Button size="sm" variant="outline" onClick={manualReloadHistory}>Reload History</Button>
+            )}
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>

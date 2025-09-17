@@ -1,18 +1,9 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useState } from "react"
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-
-// Fix for default markers in React Leaflet
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-})
 
 interface Vehicle {
   id: string
@@ -32,53 +23,19 @@ interface MapComponentProps {
   onVehicleSelect: (vehicle: Vehicle) => void
 }
 
-// Custom vehicle icon based on status
-function createVehicleIcon(status: Vehicle["status"], isSelected: boolean = false) {
-  let color = "#6b7280" // gray default
-
-  switch (status) {
-    case "active":
-      color = "#22c55e" // green
-      break
-    case "idle":
-      color = "#eab308" // yellow
-      break
-    case "maintenance":
-      color = "#ef4444" // red
-      break
-    case "offline":
-      color = "#6b7280" // gray
-      break
-  }
-
-  const size = isSelected ? 32 : 24
-  const iconHtml = `
-    <div style="
-      width: ${size}px;
-      height: ${size}px;
-      background-color: ${color};
-      border: 2px solid white;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-      ${isSelected ? 'transform: scale(1.2);' : ''}
-    ">
-      <svg width="${size * 0.6}" height="${size * 0.6}" viewBox="0 0 24 24" fill="white">
-        <path d="M3 6h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17M17 13v6a2 2 0 01-2 2H9a2 2 0 01-2-2v-6m8 0V9a2 2 0 00-2-2H9a2 2 0 00-2 2v4.01"/>
-      </svg>
-    </div>
-  `
-
-  return L.divIcon({
-    html: iconHtml,
-    className: 'custom-vehicle-icon',
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2]
-  })
-}
+// Red circle icons (normal & selected)
+const redIcon = L.divIcon({
+  html: '<div style="width:16px;height:16px;border:2px solid #fff;border-radius:50%;background:#dc2626;box-shadow:0 0 2px rgba(0,0,0,0.4);"></div>',
+  className: 'fleet-red-icon',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8]
+})
+const redIconSelected = L.divIcon({
+  html: '<div style="width:26px;height:26px;border:3px solid #fff;border-radius:50%;background:#b91c1c;box-shadow:0 0 4px rgba(0,0,0,0.5);"></div>',
+  className: 'fleet-red-icon-selected',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13]
+})
 
 // Component to handle map events and centering
 function MapController({ selectedVehicle, vehicles }: { selectedVehicle: Vehicle | null, vehicles: Vehicle[] }) {
@@ -105,12 +62,13 @@ function MapController({ selectedVehicle, vehicles }: { selectedVehicle: Vehicle
 }
 
 export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelect }: MapComponentProps) {
-  // Default center (New York City)
   const defaultCenter: [number, number] = [40.7128, -74.0060]
+  const [mapKey] = useState(()=> 'map_'+Math.random().toString(36).slice(2))
 
   return (
     <div className="w-full h-96 rounded-lg overflow-hidden">
       <MapContainer
+        key={mapKey}
         center={defaultCenter}
         zoom={11}
         style={{ height: "100%", width: "100%" }}
@@ -127,10 +85,8 @@ export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelec
           <Marker
             key={vehicle.id}
             position={[vehicle.lat, vehicle.lng]}
-            icon={createVehicleIcon(vehicle.status, selectedVehicle?.id === vehicle.id)}
-            eventHandlers={{
-              click: () => onVehicleSelect(vehicle)
-            }}
+            icon={selectedVehicle?.id === vehicle.id ? redIconSelected : redIcon}
+            eventHandlers={{ click: () => onVehicleSelect(vehicle) }}
           >
             <Popup>
               <div className="p-2 min-w-48">

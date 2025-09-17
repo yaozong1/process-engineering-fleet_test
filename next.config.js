@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // SSR 模式: 移除 static export 相关配置
+  // 关闭 Strict Mode 以避免某些第三方库（Leaflet）在开发环境双挂载导致的重复初始化错误
+  reactStrictMode: false,
   eslint: {
     // 临时关闭构建期 ESLint 阻塞（后续可逐步修正 any 并移除此配置）
     ignoreDuringBuilds: true,
