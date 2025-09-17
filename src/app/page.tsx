@@ -57,8 +57,8 @@ export default function FleetManagerPage() {
 
     const now = Date.now()
     const timeSinceLastActivity = now - lastActivityRef.current
-    const timeoutMs = 60000 // 1分钟
-    const warningMs = 30000 // 30秒警告
+  const timeoutMs = 15 * 60 * 1000 // 15分钟
+  const warningMs = 10 * 60 * 1000 // 10分钟警告
     
     const secondsInactive = Math.floor(timeSinceLastActivity / 1000)
     const remainingMs = timeoutMs - timeSinceLastActivity
