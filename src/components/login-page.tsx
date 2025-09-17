@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -10,29 +11,55 @@ import {
   Eye,
   EyeOff,
   Lock,
-  Mail
+  User
 } from "lucide-react"
 
 interface LoginPageProps {
-  onLogin: () => void
+  onLogin: (user: any) => void
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
-  const [email, setEmail] = useState("")
+  const router = useRouter()
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError("")
 
-    // Simulate authentication delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password
+        }),
+      })
 
-    // For demo purposes, accept any email/password
-    setIsLoading(false)
-    onLogin()
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed')
+      }
+
+      // Store user info in localStorage
+      localStorage.setItem('user', JSON.stringify(data.user))
+      localStorage.setItem('token', data.token)
+
+      setIsLoading(false)
+      onLogin(data.user)
+
+    } catch (err: any) {
+      setError(err.message || 'Login failed')
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -121,18 +148,18 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             <CardContent className="p-8">
               <form onSubmit={handleLogin} className="space-y-6">
                 <div className="space-y-2">
-                  <label htmlFor="email" className="text-sm font-medium text-gray-700">
-                    Username/Email
+                  <label htmlFor="username" className="text-sm font-medium text-gray-700">
+                    Username
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      id="username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Enter your email address"
+                      placeholder="Enter your username"
                       required
                     />
                   </div>
@@ -163,6 +190,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   </div>
                 </div>
 
+                {error && (
+                  <div className="p-3 text-red-700 bg-red-100 border border-red-300 rounded">
+                    {error}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <input
@@ -192,8 +225,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               </form>
 
               <div className="mt-6 text-center">
-                <p className="text-sm text-gray-600">
-                  
+                <p className="text-sm text-gray-500">
+                  Contact your administrator to create a new account
                 </p>
               </div>
             </CardContent>

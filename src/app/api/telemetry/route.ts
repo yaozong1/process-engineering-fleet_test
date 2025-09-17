@@ -24,19 +24,19 @@ export async function GET(req: NextRequest) {
     const redis = getRedis()
     const key = `telemetry:${device}`
     console.log('[API GET] Querying Redis key:', key, 'limit:', limit)
-    
+
     const keyExists = await redis.exists(key)
     const listLength = await redis.llen(key)
     console.log('[API GET] Key exists:', keyExists, 'List length:', listLength)
-    
+
     const raw = await redis.lrange<string>(key, 0, limit - 1)
     console.log('[API GET] Raw data from Redis:', raw)
-    
+
     const out: CompleteTelemetry[] = []
     for (const r of raw) {
       // Upstash Redis already returns parsed objects, not JSON strings
       console.log('[API GET] Processing record:', r, 'type:', typeof r)
-      
+
       // If it's already an object, use it directly
       if (typeof r === 'object' && r !== null && typeof (r as any).soc === 'number') {
         console.log('[API GET] Using object directly:', r)
@@ -55,11 +55,11 @@ export async function GET(req: NextRequest) {
         })
         continue
       }
-      
+
       // Fallback: try JSON parsing if it's a string
       let parsed: any = null
       if (typeof r === 'string') {
-        try { 
+        try {
           parsed = JSON.parse(r)
           console.log('[API GET] Parsed JSON from string:', parsed)
         } catch (e) {
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
           continue
         }
       }
-      
+
       // Last resort: regex extraction from string representation
       const rStr = String(r)
       const socMatch = /"?soc"?\s*:\s*([0-9]+(?:\.[0-9]+)?)/.exec(rStr)

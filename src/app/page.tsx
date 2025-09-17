@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { LoginPage } from "@/components/login-page"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardNavigation, type NavigationTab } from "@/components/dashboard-navigation"
@@ -8,17 +8,68 @@ import { OverviewDashboard } from "@/components/overview-dashboard"
 import { GpsTrackingDashboard } from "@/components/gps-tracking-dashboard"
 import { BatteryMonitorDashboard } from "@/components/battery-monitor-dashboard"
 
+interface User {
+  userId: string
+  username: string
+  role: 'admin' | 'user'
+  email?: string
+}
+
 export default function FleetManagerPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
   const [activeTab, setActiveTab] = useState<NavigationTab>("overview")
+  const [loading, setLoading] = useState(true)
 
-  const handleLogin = () => {
+  // Check for existing authentication on page load
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/verify')
+        if (response.ok) {
+          const data = await response.json()
+          setUser(data.user)
+          setIsAuthenticated(true)
+        }
+      } catch (error) {
+        console.log('No valid authentication found')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkAuth()
+  }, [])
+
+  const handleLogin = (userData: User) => {
+    setUser(userData)
     setIsAuthenticated(true)
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/verify', { method: 'POST' }) // Logout endpoint
+      localStorage.removeItem('user')
+      localStorage.removeItem('token')
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+    
+    setUser(null)
     setIsAuthenticated(false)
     setActiveTab("overview") // Reset to overview when logging out
+  }
+
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   // Show login page if not authenticated
@@ -90,7 +141,7 @@ export default function FleetManagerPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <DashboardHeader onLogout={handleLogout} />
+      <DashboardHeader user={user} onLogout={handleLogout} />
       <DashboardNavigation
         activeTab={activeTab}
         onTabChange={setActiveTab}

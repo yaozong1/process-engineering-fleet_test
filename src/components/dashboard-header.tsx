@@ -1,37 +1,35 @@
-"use client"
+﻿"use client";
 
-import { Button } from "@/components/ui/button"
-import { Truck, Settings } from "lucide-react"
+import { Button } from "@/components/ui/button";
+import { Truck, User, LogOut } from "lucide-react";
 
-interface DashboardHeaderProps {
-  onLogout?: () => void
+interface User {
+  userId: string;
+  username: string;
+  role: 'admin' | 'user';
+  email?: string;
 }
 
-export function DashboardHeader({ onLogout }: DashboardHeaderProps) {
+interface DashboardHeaderProps {
+  user?: User | null;
+  onLogout?: () => void;
+}
+
+export function DashboardHeader({ user, onLogout }: DashboardHeaderProps) {
   return (
     <header className="bg-white shadow-sm border-b">
       <div className="px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
-                <Truck className="w-4 h-4 text-white" />
-              </div>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-                Process Engineering Fleet Manager
-              </h1>
-              <p className="text-sm text-gray-600">
-                Comprehensive Fleet Management System
-              </p>
-            </div>
+            <Truck className="w-6 h-6 text-blue-600" />
+            <h1 className="text-xl font-bold">PE Fleet Manager</h1>
           </div>
-          <Button variant="outline" onClick={onLogout}>
-            Logout
-          </Button>
+          <div className="flex items-center space-x-4">
+            {user && <span>Welcome {user.username}</span>}
+            <Button onClick={onLogout}>Logout</Button>
+          </div>
         </div>
       </div>
     </header>
-  )
+  );
 }
