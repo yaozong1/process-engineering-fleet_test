@@ -23,23 +23,18 @@ export async function GET(req: NextRequest) {
   try {
     const redis = getRedis()
     const key = `telemetry:${device}`
-    console.log('[API GET] Querying Redis key:', key, 'limit:', limit)
 
     const keyExists = await redis.exists(key)
     const listLength = await redis.llen(key)
-    console.log('[API GET] Key exists:', keyExists, 'List length:', listLength)
 
     const raw = await redis.lrange<string>(key, 0, limit - 1)
-    console.log('[API GET] Raw data from Redis:', raw)
 
     const out: CompleteTelemetry[] = []
     for (const r of raw) {
       // Upstash Redis already returns parsed objects, not JSON strings
-      console.log('[API GET] Processing record:', r, 'type:', typeof r)
 
       // If it's already an object, use it directly
       if (typeof r === 'object' && r !== null && typeof (r as any).soc === 'number') {
-        console.log('[API GET] Using object directly:', r)
         const obj = r as any
         out.push({
           device,
@@ -61,9 +56,8 @@ export async function GET(req: NextRequest) {
       if (typeof r === 'string') {
         try {
           parsed = JSON.parse(r)
-          console.log('[API GET] Parsed JSON from string:', parsed)
         } catch (e) {
-          console.log('[API GET] JSON parse failed for string:', r)
+          // JSON parse failed, skip
         }
         if (parsed && typeof parsed.soc === 'number') {
           out.push({
@@ -91,10 +85,8 @@ export async function GET(req: NextRequest) {
       }
     }
     out.reverse()
-    console.log('[API GET] Final output:', out)
     return NextResponse.json({ device, count: out.length, data: out })
   } catch (e: any) {
-    console.log('[API GET] Error:', e.message)
     return NextResponse.json({ error: e.message || 'redis_error' }, { status: 500 })
   }
 }
@@ -122,14 +114,11 @@ export async function POST(req: NextRequest) {
     }
     const redis = getRedis()
     const key = `telemetry:${device}`
-    console.log('[API POST] Storing to Redis key:', key, 'data:', item)
     await redis.lpush(key, JSON.stringify(item))
     await redis.ltrim(key, 0, MAX_HISTORY - 1)
     const finalCount = await redis.llen(key)
-    console.log('[API POST] Data stored, final count:', finalCount)
     return NextResponse.json({ ok: true, key, count: finalCount })
   } catch (e: any) {
-    console.log('[API POST] Error:', e.message)
     return NextResponse.json({ error: e.message || 'redis_error' }, { status: 500 })
   }
 }
