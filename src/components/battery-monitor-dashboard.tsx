@@ -385,24 +385,24 @@ export function BatteryMonitorDashboard() {
     }
   }, [selectedVehicle, DEVICE_NAME])
 
-  // Simulated probing for non-MQTT vehicles only (PE-001 uses Redis data)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setBatteryData(prev => prev.map(battery => {
-        if (battery.vehicleId === DEVICE_NAME) return battery // Skip PE-001, use Redis data only
-        const change = (Math.random() - 0.5) * 2
-        const newLevel = Math.max(0, Math.min(100, battery.currentLevel + change))
-        return {
-          ...battery,
-          currentLevel: newLevel,
-            voltage: 11.5 + (newLevel / 100) * 2 + (Math.random() - 0.5) * 0.2,
-            temperature: battery.temperature + (Math.random() - 0.5) * 2,
-            lastProbe: "Just now"
-        }
-      }))
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [DEVICE_NAME])
+  // 移除模拟数据更新 - 现在完全使用数据库驱动
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     setBatteryData(prev => prev.map(battery => {
+  //       if (battery.vehicleId === DEVICE_NAME) return battery // Skip PE-001, use Redis data only
+  //       const change = (Math.random() - 0.5) * 2
+  //       const newLevel = Math.max(0, Math.min(100, battery.currentLevel + change))
+  //       return {
+  //         ...battery,
+  //         currentLevel: newLevel,
+  //           voltage: 11.5 + (newLevel / 100) * 2 + (Math.random() - 0.5) * 0.2,
+  //           temperature: battery.temperature + (Math.random() - 0.5) * 2,
+  //           lastProbe: "Just now"
+  //       }
+  //     }))
+  //   }, 5000)
+  //   return () => clearInterval(interval)
+  // }, [DEVICE_NAME])
 
   // MQTT connect + subscribe
   useEffect(() => {
@@ -458,7 +458,13 @@ export function BatteryMonitorDashboard() {
         const deviceId = topicParts[1] // PE-001, PE-002, etc.
         const messageType = topicParts[2] // battery or status
         
-        console.log('[BatteryDashboard] 收到MQTT消息:', { topic, deviceId, messageType })
+        console.log('[BatteryDashboard] 收到MQTT消息:', { 
+          topic, 
+          deviceId, 
+          messageType,
+          payload: payload.toString(),
+          timestamp: new Date().toISOString()
+        })
         
         if (messageType === 'battery') {
           try {
