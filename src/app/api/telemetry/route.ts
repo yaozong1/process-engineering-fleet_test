@@ -20,8 +20,34 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const device = searchParams.get('device') || 'PE-001'
   const limit = Math.min(Number(searchParams.get('limit') || MAX_HISTORY), MAX_HISTORY)
+  const list = searchParams.get('list')
+  
   try {
     const redis = getRedis()
+    
+    // 如果请求设备列表
+    if (list === '1') {
+      console.log('[API] 获取设备列表请求')
+      
+      // 获取所有以 telemetry: 开头的键
+      const keys = await redis.keys('telemetry:*')
+      console.log('[API] 找到的Redis键:', keys)
+      
+      // 从键名中提取设备ID
+      const devices = keys
+        .filter((key: string) => key.startsWith('telemetry:'))
+        .map((key: string) => key.replace('telemetry:', ''))
+        .filter((deviceId: string) => deviceId.length > 0)
+      
+      console.log('[API] 提取的设备列表:', devices)
+      
+      return NextResponse.json({ 
+        devices: devices,
+        count: devices.length 
+      })
+    }
+    
+    // 原有的单设备数据获取逻辑
     const key = `telemetry:${device}`
 
     const keyExists = await redis.exists(key)

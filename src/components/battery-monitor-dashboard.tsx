@@ -166,28 +166,35 @@ export function BatteryMonitorDashboard() {
   const MAX_AGE_MS = 0 // 例如想限制 2 小时可设为 2 * 60 * 60 * 1000
   const LS_KEY = `battery_history_${DEVICE_NAME}`
 
-  // 首次加载：获取设备列表并初始化数据
+  // 首次加载：获取设备列表并初始化数据 - 只显示数据库中存在的设备
   useEffect(() => {
     (async () => {
       try {
-        console.log('[BatteryDashboard] 获取设备列表...')
+        console.log('[BatteryDashboard] 获取数据库设备列表...')
         
-        // 首先尝试从API获取设备列表
+        // 从API获取设备列表
         const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
         if (listRes.ok) {
           const listJson = await listRes.json()
-          console.log('[BatteryDashboard] API设备列表:', listJson)
+          console.log('[BatteryDashboard] 数据库设备列表:', listJson)
           
           if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
             // 为每个设备获取最新数据
             const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
               try {
                 const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
-                if (!deviceRes.ok) return null
+                if (!deviceRes.ok) {
+                  console.warn(`[BatteryDashboard] 设备 ${deviceId} 无数据，跳过`)
+                  return null
+                }
                 const deviceJson = await deviceRes.json()
-                if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) return null
+                if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) {
+                  console.warn(`[BatteryDashboard] 设备 ${deviceId} 数据为空，跳过`)
+                  return null
+                }
                 
                 const data = deviceJson.data[0]
+                console.log(`[BatteryDashboard] 加载设备 ${deviceId} 数据:`, data)
                 return {
                   vehicleId: deviceId,
                   currentLevel: typeof data.soc === 'number' ? data.soc : 0,
@@ -197,10 +204,11 @@ export function BatteryMonitorDashboard() {
                   cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : 0,
                   estimatedRange: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : 0,
                   chargingStatus: (typeof data.chargingStatus === 'string' ? data.chargingStatus : 'idle') as BatteryData['chargingStatus'],
-                  lastProbe: data.ts ? new Date(data.ts).toLocaleTimeString() : 'API数据',
+                  lastProbe: data.ts ? new Date(data.ts).toLocaleTimeString() : '数据库加载',
                   alerts: Array.isArray(data.alerts) ? data.alerts : []
                 } as BatteryData
-              } catch {
+              } catch (error) {
+                console.error(`[BatteryDashboard] 加载设备 ${deviceId} 失败:`, error)
                 return null
               }
             })
@@ -209,20 +217,34 @@ export function BatteryMonitorDashboard() {
             const validDeviceData = deviceDataResults.filter(d => d !== null) as BatteryData[]
             
             if (validDeviceData.length > 0) {
-              console.log('[BatteryDashboard] 从API加载设备数据:', validDeviceData)
+              console.log('[BatteryDashboard] 最终显示的设备:', validDeviceData.map(d => d.vehicleId))
               setBatteryData(validDeviceData)
+              // 设置第一个设备为默认选中
+              setSelectedVehicle(validDeviceData[0].vehicleId)
+              return
+            } else {
+              console.log('[BatteryDashboard] 没有有效的设备数据')
+              setBatteryData([])
+              setSelectedVehicle("")
               return
             }
+          } else {
+            console.log('[BatteryDashboard] 数据库设备列表为空')
+            setBatteryData([])
+            setSelectedVehicle("")
+            return
           }
+        } else {
+          console.error('[BatteryDashboard] 获取设备列表失败:', listRes.status, listRes.statusText)
+          setBatteryData([])
+          setSelectedVehicle("")
+          return
         }
-        
-        // API失败时使用fallback mock数据
-        console.log('[BatteryDashboard] API失败，使用mock数据')
-        setBatteryData(mockBatteryData)
         
       } catch (error) {
         console.error('[BatteryDashboard] 初始化失败:', error)
-        setBatteryData(mockBatteryData)
+        setBatteryData([])
+        setSelectedVehicle("")
       }
     })()
   }, [])
@@ -735,63 +757,73 @@ export function BatteryMonitorDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {batteryData.map((battery) => (
-                <div
-                  key={battery.vehicleId}
-                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                    selectedVehicle === battery.vehicleId
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                  onClick={() => setSelectedVehicle(battery.vehicleId)}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
-                      <span className="font-medium">{battery.vehicleId}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-lg font-bold ${getBatteryColor(battery.currentLevel)}`}>
-                        {battery.currentLevel}%
-                      </span>
-                      {battery.chargingStatus === "charging" && (
-                        <Badge variant="secondary">Charging</Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  <Progress
-                    value={battery.currentLevel}
-                    className="mb-3"
-                  />
-
-                  <div className="grid grid-cols-3 gap-2 text-xs text-gray-600">
-                    <div>
-                      <p>Voltage: {battery.voltage.toFixed(1)}V</p>
-                    </div>
-                    <div>
-                      <p>Temp: {battery.temperature}°C</p>
-                    </div>
-                    <div>
-                      <p>Health: {battery.health}%</p>
-                    </div>
-                  </div>
-
-                  {battery.alerts.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {battery.alerts.map((alert, index) => (
-                        <Badge key={index} variant="destructive" className="text-xs">
-                          {alert}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  <p className="text-xs text-gray-400 mt-2">
-                    Last probe: {battery.lastProbe}
+              {batteryData.length === 0 ? (
+                <div className="text-center py-8">
+                  <Battery className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg font-medium mb-2">暂无设备数据</p>
+                  <p className="text-gray-400 text-sm">
+                    当前数据库中没有找到任何设备，请确保设备已正确添加到系统中。
                   </p>
                 </div>
-              ))}
+              ) : (
+                batteryData.map((battery) => (
+                  <div
+                    key={battery.vehicleId}
+                    className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                      selectedVehicle === battery.vehicleId
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                    onClick={() => setSelectedVehicle(battery.vehicleId)}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
+                        <span className="font-medium">{battery.vehicleId}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-lg font-bold ${getBatteryColor(battery.currentLevel)}`}>
+                          {battery.currentLevel}%
+                        </span>
+                        {battery.chargingStatus === "charging" && (
+                          <Badge variant="secondary">Charging</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <Progress
+                      value={battery.currentLevel}
+                      className="mb-3"
+                    />
+
+                    <div className="grid grid-cols-3 gap-2 text-xs text-gray-600">
+                      <div>
+                        <p>Voltage: {battery.voltage.toFixed(1)}V</p>
+                      </div>
+                      <div>
+                        <p>Temp: {battery.temperature}°C</p>
+                      </div>
+                      <div>
+                        <p>Health: {battery.health}%</p>
+                      </div>
+                    </div>
+
+                    {battery.alerts.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {battery.alerts.map((alert, index) => (
+                          <Badge key={index} variant="destructive" className="text-xs">
+                            {alert}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-gray-400 mt-2">
+                      Last probe: {battery.lastProbe}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -805,21 +837,39 @@ export function BatteryMonitorDashboard() {
             )}
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={historyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" />
-                <YAxis domain={[0, 100]} />
-                <Area
-                  type="monotone"
-                  dataKey="level"
-                  stroke="#3b82f6"
-                  fill="#3b82f6"
-                  fillOpacity={0.2}
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {batteryData.length === 0 ? (
+              <div className="text-center py-16">
+                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg font-medium mb-2">无历史数据</p>
+                <p className="text-gray-400 text-sm">
+                  暂无设备可显示历史数据
+                </p>
+              </div>
+            ) : !selectedVehicle ? (
+              <div className="text-center py-16">
+                <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg font-medium mb-2">选择设备</p>
+                <p className="text-gray-400 text-sm">
+                  请从左侧选择一个设备查看历史数据
+                </p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={historyData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" />
+                  <YAxis domain={[0, 100]} />
+                  <Area
+                    type="monotone"
+                    dataKey="level"
+                    stroke="#3b82f6"
+                    fill="#3b82f6"
+                    fillOpacity={0.2}
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
