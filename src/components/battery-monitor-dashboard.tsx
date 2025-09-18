@@ -204,6 +204,153 @@ export function BatteryMonitorDashboard() {
     }
   }
 
+  // 同步云端数据：以Redis为准，清除本地多余缓存，保持有限数量的历史数据
+  const syncCloudData = async () => {
+    setIsLoading(true)
+    try {
+      console.log('[BatteryDashboard] 开始同步云端数据...')
+      
+      // 1. 清除所有本地缓存
+      if (typeof window !== 'undefined') {
+        // 清除sessionStorage
+        sessionStorage.removeItem(CACHE_KEY)
+        
+        // 清除所有localStorage历史数据
+        const keysToRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && key.startsWith('battery_history_')) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key))
+        console.log('[BatteryDashboard] 已清除本地缓存:', keysToRemove.length, '个项目')
+      }
+
+      // 2. 清除内存中的历史数据
+      deviceHistoryRef.current = []
+      setHistoryData([])
+
+      // 3. 重新从云端获取设备列表
+      const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
+      if (listRes.ok) {
+        const listJson = await listRes.json()
+        console.log('[BatteryDashboard] 云端设备列表:', listJson)
+        
+        if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
+          // 4. 为每个设备从云端获取有限的历史数据 (最新50条)
+          const SYNC_LIMIT = 50 // 同步时只保留最新50条历史数据
+          const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
+            try {
+              // 获取设备的最新数据
+              const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${SYNC_LIMIT}`, { cache: 'no-store' })
+              if (!deviceRes.ok) {
+                console.warn(`[BatteryDashboard] 云端设备 ${deviceId} 无数据`)
+                return null
+              }
+              const deviceJson = await deviceRes.json()
+              if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) {
+                console.warn(`[BatteryDashboard] 云端设备 ${deviceId} 数据为空`)
+                return null
+              }
+              
+              const latestData = deviceJson.data[0]
+              console.log(`[BatteryDashboard] 云端设备 ${deviceId} 数据:`, latestData, `(历史记录:${deviceJson.data.length}条)`)
+              
+              // 5. 将云端历史数据保存到本地localStorage (有限数量)
+              if (typeof window !== 'undefined' && deviceJson.data.length > 0) {
+                const historyPoints = deviceJson.data.map((d: any) => ({
+                  time: new Date(d.ts).toLocaleTimeString(),
+                  level: d.soc || 0,
+                  voltage: d.voltage || 0,
+                  temperature: d.temperature || 0
+                })).reverse() // 从旧到新排序
+                
+                const lsKey = `battery_history_${deviceId}`
+                try {
+                  localStorage.setItem(lsKey, JSON.stringify(historyPoints))
+                  console.log(`[BatteryDashboard] 已同步设备 ${deviceId} 的 ${historyPoints.length} 条历史数据到本地`)
+                } catch (e) {
+                  console.warn(`[BatteryDashboard] 保存设备 ${deviceId} 历史数据失败:`, e)
+                }
+              }
+              
+              return {
+                vehicleId: deviceId,
+                currentLevel: typeof latestData.soc === 'number' ? latestData.soc : 0,
+                voltage: typeof latestData.voltage === 'number' ? latestData.voltage : 0,
+                temperature: typeof latestData.temperature === 'number' ? latestData.temperature : 0,
+                health: typeof latestData.health === 'number' ? latestData.health : 95,
+                cycleCount: typeof latestData.cycleCount === 'number' ? latestData.cycleCount : 0,
+                estimatedRange: typeof latestData.estimatedRangeKm === 'number' ? latestData.estimatedRangeKm : 0,
+                chargingStatus: (typeof latestData.chargingStatus === 'string' ? latestData.chargingStatus : 'idle') as BatteryData['chargingStatus'],
+                lastProbe: `云端同步 - ${new Date().toLocaleTimeString()}`,
+                alerts: Array.isArray(latestData.alerts) ? latestData.alerts : []
+              } as BatteryData
+            } catch (error) {
+              console.error(`[BatteryDashboard] 同步设备 ${deviceId} 失败:`, error)
+              return null
+            }
+          })
+          
+          const deviceDataResults = await Promise.all(deviceDataPromises)
+          const validDeviceData = deviceDataResults.filter(d => d !== null) as BatteryData[]
+          
+          if (validDeviceData.length > 0) {
+            console.log('[BatteryDashboard] 云端同步完成，设备:', validDeviceData.map(d => d.vehicleId))
+            setBatteryData(validDeviceData)
+            setSelectedVehicle(validDeviceData[0].vehicleId)
+            
+            // 如果选中的设备有历史数据，立即加载
+            const selectedDeviceId = validDeviceData[0].vehicleId
+            const historyKey = `battery_history_${selectedDeviceId}`
+            if (typeof window !== 'undefined') {
+              const storedHistory = localStorage.getItem(historyKey)
+              if (storedHistory) {
+                try {
+                  const historyData = JSON.parse(storedHistory)
+                  if (Array.isArray(historyData)) {
+                    setHistoryData(historyData)
+                    
+                    // 重要：如果选中的设备是MQTT设备，需要初始化deviceHistoryRef
+                    if (selectedDeviceId === DEVICE_NAME) {
+                      deviceHistoryRef.current = [...historyData]
+                      console.log(`[BatteryDashboard] 已初始化MQTT设备 ${selectedDeviceId} 的deviceHistoryRef:`, historyData.length, '条')
+                    }
+                    
+                    console.log(`[BatteryDashboard] 已加载设备 ${selectedDeviceId} 的历史数据:`, historyData.length, '条')
+                  }
+                } catch (e) {
+                  console.warn(`[BatteryDashboard] 解析设备 ${selectedDeviceId} 历史数据失败:`, e)
+                }
+              }
+            }
+            
+            alert(`云端同步完成！\n已同步 ${validDeviceData.length} 个设备的数据\n每个设备保留最新 ${SYNC_LIMIT} 条历史记录`)
+          } else {
+            console.log('[BatteryDashboard] 云端无有效设备数据')
+            setBatteryData([])
+            setSelectedVehicle("")
+            alert('云端同步完成，但未找到有效设备数据')
+          }
+        } else {
+          console.log('[BatteryDashboard] 云端设备列表为空')
+          setBatteryData([])
+          setSelectedVehicle("")
+          alert('云端同步完成，但设备列表为空')
+        }
+      } else {
+        console.error('[BatteryDashboard] 获取云端设备列表失败:', listRes.status)
+        alert('云端同步失败：无法获取设备列表')
+      }
+    } catch (error) {
+      console.error('[BatteryDashboard] 云端同步失败:', error)
+      alert('云端同步失败：' + (error instanceof Error ? error.message : String(error)))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   // 首次加载：获取设备列表并初始化数据 - 只显示数据库中存在的设备
   useEffect(() => {
     (async () => {
@@ -429,12 +576,58 @@ export function BatteryMonitorDashboard() {
   const BATTERY_TOPICS = ['fleet/PE-001/battery', 'fleet/PE-002/battery', 'fleet/PE-003/battery', 'fleet/PE-004/battery', 'fleet/PE-005/battery']
   const STATUS_TOPICS = ['fleet/PE-001/status', 'fleet/PE-002/status', 'fleet/PE-003/status', 'fleet/PE-004/status', 'fleet/PE-005/status']
 
-  // 当切换选中车辆时：如果是 MQTT 设备 -> 使用实时环形历史；否则生成模拟历史
+  // 当切换选中车辆时：加载对应设备的历史数据
   useEffect(() => {
+    if (!selectedVehicle) {
+      setHistoryData([])
+      return
+    }
+
     if (selectedVehicle === DEVICE_NAME) {
+      // MQTT实时设备：使用实时环形历史
       setHistoryData([...deviceHistoryRef.current])
+      
+      // 如果deviceHistoryRef为空，尝试从localStorage恢复
+      if (deviceHistoryRef.current.length === 0) {
+        const historyKey = `battery_history_${selectedVehicle}`
+        const storedHistory = typeof window !== 'undefined' ? localStorage.getItem(historyKey) : null
+        if (storedHistory) {
+          try {
+            const historyData = JSON.parse(storedHistory)
+            if (Array.isArray(historyData)) {
+              deviceHistoryRef.current = [...historyData]
+              setHistoryData(historyData)
+              console.log(`[BatteryDashboard] 已恢复MQTT设备 ${selectedVehicle} 的deviceHistoryRef:`, historyData.length, '条')
+            }
+          } catch (e) {
+            console.warn(`[BatteryDashboard] 恢复MQTT设备 ${selectedVehicle} 历史数据失败:`, e)
+          }
+        }
+      }
     } else {
-      setHistoryData(generateHistoryData(selectedVehicle))
+      // 其他设备：从localStorage加载同步的云端历史数据
+      if (typeof window !== 'undefined') {
+        const historyKey = `battery_history_${selectedVehicle}`
+        const storedHistory = localStorage.getItem(historyKey)
+        if (storedHistory) {
+          try {
+            const historyData = JSON.parse(storedHistory)
+            if (Array.isArray(historyData)) {
+              setHistoryData(historyData)
+              console.log(`[BatteryDashboard] 已加载设备 ${selectedVehicle} 的历史数据:`, historyData.length, '条')
+            } else {
+              console.warn(`[BatteryDashboard] 设备 ${selectedVehicle} 的历史数据格式错误`)
+              setHistoryData([])
+            }
+          } catch (e) {
+            console.warn(`[BatteryDashboard] 解析设备 ${selectedVehicle} 历史数据失败:`, e)
+            setHistoryData([])
+          }
+        } else {
+          console.log(`[BatteryDashboard] 设备 ${selectedVehicle} 无本地历史数据`)
+          setHistoryData([])
+        }
+      }
     }
   }, [selectedVehicle, DEVICE_NAME])
 
@@ -899,9 +1092,25 @@ export function BatteryMonitorDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Battery History - {selectedVehicle}</CardTitle>
-            {selectedVehicle === DEVICE_NAME && historyData.length === 0 && (
-              <Button size="sm" variant="outline" onClick={manualReloadHistory}>Reload History</Button>
-            )}
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={syncCloudData}
+                disabled={isLoading}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                {isLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                Sync Cloud
+              </Button>
+              {selectedVehicle === DEVICE_NAME && historyData.length === 0 && (
+                <Button size="sm" variant="outline" onClick={manualReloadHistory}>Reload History</Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
