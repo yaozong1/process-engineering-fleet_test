@@ -34,10 +34,12 @@ export function DashboardHeader({ user, onLogout }: DashboardHeaderProps) {
           <div className="flex items-center space-x-4">
             {user && (
               <span className="text-sm text-gray-600">
-                Welcome {user.username} ({user.role})
+                {user.role === 'admin'
+                  ? `Welcome ${user.username} (admin)`
+                  : user.username}
               </span>
             )}
-            {user?.role === 'admin' && (
+            {user?.role === 'admin' ? (
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -47,7 +49,7 @@ export function DashboardHeader({ user, onLogout }: DashboardHeaderProps) {
                 <UserPlus className="w-4 h-4" />
                 <span>Create User</span>
               </Button>
-            )}
+            ) : null}
             <Button onClick={onLogout} variant="ghost" size="sm">
               <LogOut className="w-4 h-4 mr-2" />
               Logout

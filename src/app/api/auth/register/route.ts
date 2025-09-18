@@ -14,7 +14,7 @@ interface User {
 
 export async function POST(req: NextRequest) {
   try {
-    // ������ԱȨ��
+    // 检查管理员权限
     try {
       const adminUser = requireAdmin(req)
       console.log('[AUTH] Admin user creating new user:', adminUser.username)
@@ -37,17 +37,16 @@ export async function POST(req: NextRequest) {
     }
 
     const redis = getRedis()
-    
-    // Check if user already exists
+    // 检查用户名是否已存在
     const existingUser = await redis.get(`user:${username}`)
     if (existingUser) {
       return NextResponse.json({ error: 'Username already exists' }, { status: 409 })
     }
 
-    // Hash password
+    // 密码加密
     const hashedPassword = await bcrypt.hash(password, 12)
 
-    // Create user
+    // 创建用户对象
     const user: User = {
       id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       username,
@@ -57,19 +56,17 @@ export async function POST(req: NextRequest) {
       createdAt: Date.now()
     }
 
-    // Store user in Redis
+    // 存入Redis
     await redis.set(`user:${username}`, JSON.stringify(user))
-    
-    // Add to users list
     await redis.sadd('users', username)
 
     console.log('[AUTH] User created:', username, 'role:', user.role)
 
-    // Return user info without password
+    // 返回用户信息（不含密码）
     const { password: _, ...userInfo } = user
     return NextResponse.json({ success: true, user: userInfo })
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('[AUTH] User creation error:', error)
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
   }

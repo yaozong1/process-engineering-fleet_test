@@ -14,6 +14,7 @@ export default function FleetManagerPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [activeTab, setActiveTab] = useState<NavigationTab>("overview")
+  const [currentUser, setCurrentUser] = useState<{userId: string, username: string, role: 'admin'|'user'}|null>(null)
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [remainingMinutes, setRemainingMinutes] = useState(0)
   
@@ -23,13 +24,16 @@ export default function FleetManagerPage() {
   const graceKey = 'auth-grace-ts'
   const refreshGraceMs = 15 * 60 * 1000 // 15 minutes grace for page refresh
 
-  const handleLogin = () => {
+  // 登录后设置用户信息（模拟，实际应从API获取）
+  const handleLogin = (user?: {userId: string, username: string, role: 'admin'|'user'}) => {
     setIsAuthenticated(true)
+    setCurrentUser(user || { userId: '1', username: 'admin', role: 'admin' })
     try { sessionStorage.setItem(graceKey, String(Date.now())) } catch {}
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
+    setCurrentUser(null)
     setActiveTab("overview")
     setShowTimeoutWarning(false)
     try { sessionStorage.removeItem(graceKey) } catch {}
@@ -178,6 +182,7 @@ export default function FleetManagerPage() {
   }
 
   if (!isAuthenticated) {
+    // 这里假设LoginPage支持onLogin(user)参数，实际可根据你的实现调整
     return <LoginPage onLogin={handleLogin} />
   }
 
@@ -247,7 +252,7 @@ export default function FleetManagerPage() {
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader 
         onLogout={handleLogout}
-        user={isAuthenticated ? { userId: '1', username: 'admin', role: 'admin' } : undefined}
+        user={currentUser || undefined}
       />
       <DashboardNavigation
         activeTab={activeTab}
