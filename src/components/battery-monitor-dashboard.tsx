@@ -1011,11 +1011,7 @@ export function BatteryMonitorDashboard() {
             <div className="space-y-4">
               {isLoading ? (
                 <div className="text-center py-8">
-                  <RefreshCw className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-spin" />
-                  <p className="text-gray-500 text-lg font-medium mb-2">正在加载设备数据...</p>
-                  <p className="text-gray-400 text-sm">
-                    正在从数据库获取设备信息，请稍候。
-                  </p>
+                  <p className="text-gray-400 text-lg">Loading data</p>
                 </div>
               ) : batteryData.length === 0 ? (
                 <div className="text-center py-8">
@@ -1115,11 +1111,7 @@ export function BatteryMonitorDashboard() {
           <CardContent>
             {isLoading ? (
               <div className="text-center py-16">
-                <RefreshCw className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-spin" />
-                <p className="text-gray-500 text-lg font-medium mb-2">正在加载历史数据...</p>
-                <p className="text-gray-400 text-sm">
-                  正在从数据库获取设备历史信息
-                </p>
+                <p className="text-gray-400 text-lg">Loading data</p>
               </div>
             ) : batteryData.length === 0 ? (
               <div className="text-center py-16">
