@@ -288,10 +288,10 @@ export function BatteryMonitorDashboard() {
   }, [])
 
   // Topic design:
-  // telemetry: fleet/<productKey>/<deviceName>/telemetry
-  // status:    fleet/<productKey>/<deviceName>/status
-  const TELEMETRY_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/telemetry`
-  const STATUS_TOPIC = `fleet/${PRODUCT_KEY}/${DEVICE_NAME}/status`
+  // telemetry: fleet/PE-001/battery, fleet/PE-002/battery, etc.
+  // status:    fleet/PE-001/status, fleet/PE-002/status, etc.
+  const BATTERY_TOPIC_PATTERN = 'fleet/PE-+/battery'
+  const STATUS_TOPIC_PATTERN = 'fleet/PE-+/status'
 
   // 当切换选中车辆时：如果是 MQTT 设备 -> 使用实时环形历史；否则生成模拟历史
   useEffect(() => {
@@ -339,20 +339,33 @@ export function BatteryMonitorDashboard() {
         protocolVersion: 4
       })
       mqttRef.current = client
-      client.on('connect', () => { setMqttStatus('connected'); client.subscribe([TELEMETRY_TOPIC, STATUS_TOPIC]) })
+      client.on('connect', () => { 
+        setMqttStatus('connected'); 
+        client.subscribe([BATTERY_TOPIC_PATTERN, STATUS_TOPIC_PATTERN]) 
+      })
       client.on('error', () => setMqttStatus('error'))
       client.on('message', (topic, payload) => {
-        if (topic === TELEMETRY_TOPIC) {
+        // 从topic中提取设备ID: fleet/PE-001/battery -> PE-001
+        const topicParts = topic.split('/')
+        if (topicParts.length < 3) return
+        
+        const deviceId = topicParts[1] // PE-001, PE-002, etc.
+        const messageType = topicParts[2] // battery or status
+        
+        console.log('[BatteryDashboard] 收到MQTT消息:', { topic, deviceId, messageType })
+        
+        if (messageType === 'battery') {
           try {
             const json = JSON.parse(payload.toString()) as any
             lastTelemetryRef.current = Date.now()
             let histLevel: number | undefined
             let histVoltage: number | undefined
             let histTemperature: number | undefined
+            
             setBatteryData(prev => {
               let found = false
               const updated = prev.map(b => {
-                if (b.vehicleId !== DEVICE_NAME) return b
+                if (b.vehicleId !== deviceId) return b
                 found = true
                 const level = typeof json.soc === 'number' ? json.soc : b.currentLevel
                 const voltage = typeof json.voltage === 'number' ? json.voltage : b.voltage
@@ -365,12 +378,14 @@ export function BatteryMonitorDashboard() {
                 histLevel = level; histVoltage = voltage; histTemperature = temperature
                 return { ...b, currentLevel: level, voltage, temperature, health, cycleCount, estimatedRange, chargingStatus, alerts, lastProbe: 'Just now' }
               })
+              
               if (!found) {
+                // 新设备自动添加
                 histLevel = json.soc ?? 0
                 histVoltage = json.voltage ?? 0
                 histTemperature = json.temperature ?? 0
                 updated.push({ 
-                  vehicleId: DEVICE_NAME, 
+                  vehicleId: deviceId, 
                   currentLevel: histLevel, 
                   voltage: histVoltage, 
                   temperature: histTemperature, 
@@ -381,9 +396,11 @@ export function BatteryMonitorDashboard() {
                   lastProbe: 'Just now', 
                   alerts: Array.isArray(json.alerts) ? json.alerts : [] 
                 })
+                console.log('[BatteryDashboard] 新设备已添加:', deviceId)
               }
-              // 更新环形历史（仅针对目标设备）
-              if (histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
+              
+              // 更新环形历史（仅针对当前选中设备）
+              if (deviceId === selectedVehicle && histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
                 const arr = deviceHistoryRef.current
                 arr.push({
                   time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -392,15 +409,18 @@ export function BatteryMonitorDashboard() {
                   temperature: histTemperature
                 })
                 if (arr.length > MAX_HISTORY) arr.shift()
+                
                 // 写入 localStorage（轻量，200 条以内）
-                try { if (typeof window !== 'undefined') window.localStorage.setItem(LS_KEY, JSON.stringify(arr)) } catch { /* ignore */ }
+                const lsKey = `battery_history_${deviceId}`
+                try { if (typeof window !== 'undefined') window.localStorage.setItem(lsKey, JSON.stringify(arr)) } catch { /* ignore */ }
+                
                 // 转发完整telemetry到共享历史
                 try {
                   fetch('/api/telemetry', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      device: DEVICE_NAME,
+                      device: deviceId,
                       ts: Date.now(),
                       soc: histLevel,
                       voltage: histVoltage,
@@ -413,18 +433,17 @@ export function BatteryMonitorDashboard() {
                     })
                   }).catch(() => {})
                 } catch { /* ignore */ }
-                if (selectedVehicle === DEVICE_NAME) {
-                  // 触发图表刷新
-                  setHistoryData([...arr])
-                }
+                
+                // 触发图表刷新
+                setHistoryData([...arr])
               }
               return updated
             })
           } catch { /* ignore parse errors */ }
-        } else if (topic === STATUS_TOPIC) {
+        } else if (messageType === 'status') {
           const statusTxt = payload.toString().trim().toLowerCase()
           setBatteryData(prev => prev.map(b => {
-            if (b.vehicleId !== DEVICE_NAME) return b
+            if (b.vehicleId !== deviceId) return b
             return { ...b, lastProbe: statusTxt === 'online' ? 'Just now' : 'offline' }
           }))
         }
@@ -434,7 +453,7 @@ export function BatteryMonitorDashboard() {
     }
     return () => { mqttRef.current?.end(true); mqttRef.current = null }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, TELEMETRY_TOPIC, STATUS_TOPIC])
+  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, BATTERY_TOPIC_PATTERN, STATUS_TOPIC_PATTERN, selectedVehicle])
 
   // Staleness detection -> add alert after 10 minutes (600000 ms) silence.
   useEffect(() => {
