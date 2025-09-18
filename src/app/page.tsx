@@ -12,6 +12,7 @@ import { BatteryMonitorDashboard } from "@/components/battery-monitor-dashboard"
 export default function FleetManagerPage() {
   const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [checkingAuth, setCheckingAuth] = useState(true)
   const [activeTab, setActiveTab] = useState<NavigationTab>("overview")
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [remainingMinutes, setRemainingMinutes] = useState(0)
@@ -19,16 +20,69 @@ export default function FleetManagerPage() {
   const lastActivityRef = useRef<number>(Date.now())
   const checkIntervalRef = useRef<NodeJS.Timeout>()
   const warningShownRef = useRef<boolean>(false)
+  const graceKey = 'auth-grace-ts'
+  const refreshGraceMs = 15 * 60 * 1000 // 15 minutes grace for page refresh
 
   const handleLogin = () => {
     setIsAuthenticated(true)
+    try { sessionStorage.setItem(graceKey, String(Date.now())) } catch {}
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
     setActiveTab("overview")
     setShowTimeoutWarning(false)
+    try { sessionStorage.removeItem(graceKey) } catch {}
   }
+
+  // Initial auth check with refresh grace support
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        let usedGrace = false
+        try {
+          const tsStr = sessionStorage.getItem(graceKey)
+          if (tsStr) {
+            const ts = parseInt(tsStr, 10)
+            if (!Number.isNaN(ts) && Date.now() - ts <= refreshGraceMs) {
+              // Optimistically treat as authenticated within grace
+              setIsAuthenticated(true)
+              usedGrace = true
+            }
+          }
+        } catch {}
+
+        if (usedGrace) {
+          // Background verify; if invalid then logout
+          try {
+            const res = await fetch('/api/auth/verify', { cache: 'no-store' })
+            if (!res.ok) {
+              handleLogout()
+            }
+          } catch {
+            handleLogout()
+          } finally {
+            setCheckingAuth(false)
+          }
+          return
+        }
+
+        // No grace, do a normal verify to avoid flicker
+        try {
+          const res = await fetch('/api/auth/verify', { cache: 'no-store' })
+          setIsAuthenticated(res.ok)
+        } catch {
+          setIsAuthenticated(false)
+        } finally {
+          setCheckingAuth(false)
+        }
+      } catch {
+        setIsAuthenticated(false)
+        setCheckingAuth(false)
+      }
+    }
+    checkAuth()
+  }, [])
 
   // 更新活动时间
   const updateActivity = () => {
@@ -36,6 +90,7 @@ export default function FleetManagerPage() {
     warningShownRef.current = false
     setShowTimeoutWarning(false)
     console.log('[INACTIVITY] 活动检测，重置计时器')
+    try { sessionStorage.setItem(graceKey, String(Date.now())) } catch {}
   }
 
   // 执行注销
@@ -117,6 +172,10 @@ export default function FleetManagerPage() {
       }
     }
   }, [isAuthenticated])
+
+  if (checkingAuth) {
+    return <div className="p-6 text-gray-600">Loading...</div>
+  }
 
   if (!isAuthenticated) {
     return <LoginPage onLogin={handleLogin} />
