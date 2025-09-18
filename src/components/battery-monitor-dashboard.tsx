@@ -147,6 +147,7 @@ export function BatteryMonitorDashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<string>("PE-001")
   const [historyData, setHistoryData] = useState<BatteryHistoryPoint[]>([])
   const [isProbing, setIsProbing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true) // 添加加载状态
   const mqttRef = useRef<MqttClient | null>(null)
   const [mqttStatus, setMqttStatus] = useState<'idle'|'connecting'|'connected'|'error'>('idle')
   const lastTelemetryRef = useRef<number | null>(null)
@@ -166,10 +167,56 @@ export function BatteryMonitorDashboard() {
   const MAX_AGE_MS = 0 // 例如想限制 2 小时可设为 2 * 60 * 60 * 1000
   const LS_KEY = `battery_history_${DEVICE_NAME}`
 
+  // 简单的会话级缓存
+  const CACHE_KEY = 'battery_dashboard_cache'
+  const CACHE_EXPIRY = 30 * 1000 // 30秒缓存
+
+  // 检查缓存
+  const checkCache = () => {
+    if (typeof window === 'undefined') return null
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY)
+      if (cached) {
+        const data = JSON.parse(cached)
+        if (Date.now() - data.timestamp < CACHE_EXPIRY) {
+          console.log('[BatteryDashboard] 使用缓存数据')
+          return data.batteryData
+        }
+      }
+    } catch (error) {
+      console.warn('[BatteryDashboard] 缓存读取失败:', error)
+    }
+    return null
+  }
+
+  // 保存到缓存
+  const saveToCache = (data: BatteryData[]) => {
+    if (typeof window === 'undefined') return
+    try {
+      const cacheData = {
+        batteryData: data,
+        timestamp: Date.now()
+      }
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(cacheData))
+      console.log('[BatteryDashboard] 数据已缓存')
+    } catch (error) {
+      console.warn('[BatteryDashboard] 缓存保存失败:', error)
+    }
+  }
+
   // 首次加载：获取设备列表并初始化数据 - 只显示数据库中存在的设备
   useEffect(() => {
     (async () => {
       try {
+        // 先检查缓存
+        const cachedData = checkCache()
+        if (cachedData && cachedData.length > 0) {
+          setBatteryData(cachedData)
+          setSelectedVehicle(cachedData[0].vehicleId)
+          setIsLoading(false)
+          return
+        }
+
         console.log('[BatteryDashboard] 获取数据库设备列表...')
         
         // 从API获取设备列表
@@ -219,25 +266,30 @@ export function BatteryMonitorDashboard() {
             if (validDeviceData.length > 0) {
               console.log('[BatteryDashboard] 最终显示的设备:', validDeviceData.map(d => d.vehicleId))
               setBatteryData(validDeviceData)
+              saveToCache(validDeviceData) // 保存到缓存
               // 设置第一个设备为默认选中
               setSelectedVehicle(validDeviceData[0].vehicleId)
+              setIsLoading(false) // 数据加载完成
               return
             } else {
               console.log('[BatteryDashboard] 没有有效的设备数据')
               setBatteryData([])
               setSelectedVehicle("")
+              setIsLoading(false) // 加载完成，但没有数据
               return
             }
           } else {
             console.log('[BatteryDashboard] 数据库设备列表为空')
             setBatteryData([])
             setSelectedVehicle("")
+            setIsLoading(false) // 加载完成，但没有数据
             return
           }
         } else {
           console.error('[BatteryDashboard] 获取设备列表失败:', listRes.status, listRes.statusText)
           setBatteryData([])
           setSelectedVehicle("")
+          setIsLoading(false) // 加载失败
           return
         }
         
@@ -245,6 +297,7 @@ export function BatteryMonitorDashboard() {
         console.error('[BatteryDashboard] 初始化失败:', error)
         setBatteryData([])
         setSelectedVehicle("")
+        setIsLoading(false) // 加载失败
       }
     })()
   }, [])
@@ -763,7 +816,15 @@ export function BatteryMonitorDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {batteryData.length === 0 ? (
+              {isLoading ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-spin" />
+                  <p className="text-gray-500 text-lg font-medium mb-2">正在加载设备数据...</p>
+                  <p className="text-gray-400 text-sm">
+                    正在从数据库获取设备信息，请稍候。
+                  </p>
+                </div>
+              ) : batteryData.length === 0 ? (
                 <div className="text-center py-8">
                   <Battery className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-500 text-lg font-medium mb-2">暂无设备数据</p>
@@ -843,7 +904,15 @@ export function BatteryMonitorDashboard() {
             )}
           </CardHeader>
           <CardContent>
-            {batteryData.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-16">
+                <RefreshCw className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-spin" />
+                <p className="text-gray-500 text-lg font-medium mb-2">正在加载历史数据...</p>
+                <p className="text-gray-400 text-sm">
+                  正在从数据库获取设备历史信息
+                </p>
+              </div>
+            ) : batteryData.length === 0 ? (
               <div className="text-center py-16">
                 <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500 text-lg font-medium mb-2">无历史数据</p>
