@@ -143,7 +143,7 @@ function getProgressColor(level: number): string {
 }
 
 export function BatteryMonitorDashboard() {
-  const [batteryData, setBatteryData] = useState<BatteryData[]>(mockBatteryData)
+  const [batteryData, setBatteryData] = useState<BatteryData[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>("PE-001")
   const [historyData, setHistoryData] = useState<BatteryHistoryPoint[]>([])
   const [isProbing, setIsProbing] = useState(false)
@@ -165,6 +165,67 @@ export function BatteryMonitorDashboard() {
   const INITIAL_LOAD_LIMIT = 100 // 刷新后初始只加载服务器最近 100 条
   const MAX_AGE_MS = 0 // 例如想限制 2 小时可设为 2 * 60 * 60 * 1000
   const LS_KEY = `battery_history_${DEVICE_NAME}`
+
+  // 首次加载：获取设备列表并初始化数据
+  useEffect(() => {
+    (async () => {
+      try {
+        console.log('[BatteryDashboard] 获取设备列表...')
+        
+        // 首先尝试从API获取设备列表
+        const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
+        if (listRes.ok) {
+          const listJson = await listRes.json()
+          console.log('[BatteryDashboard] API设备列表:', listJson)
+          
+          if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
+            // 为每个设备获取最新数据
+            const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
+              try {
+                const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
+                if (!deviceRes.ok) return null
+                const deviceJson = await deviceRes.json()
+                if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) return null
+                
+                const data = deviceJson.data[0]
+                return {
+                  vehicleId: deviceId,
+                  currentLevel: typeof data.soc === 'number' ? data.soc : 0,
+                  voltage: typeof data.voltage === 'number' ? data.voltage : 0,
+                  temperature: typeof data.temperature === 'number' ? data.temperature : 0,
+                  health: typeof data.health === 'number' ? data.health : 95,
+                  cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : 0,
+                  estimatedRange: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : 0,
+                  chargingStatus: (typeof data.chargingStatus === 'string' ? data.chargingStatus : 'idle') as BatteryData['chargingStatus'],
+                  lastProbe: data.ts ? new Date(data.ts).toLocaleTimeString() : 'API数据',
+                  alerts: Array.isArray(data.alerts) ? data.alerts : []
+                } as BatteryData
+              } catch {
+                return null
+              }
+            })
+            
+            const deviceDataResults = await Promise.all(deviceDataPromises)
+            const validDeviceData = deviceDataResults.filter(d => d !== null) as BatteryData[]
+            
+            if (validDeviceData.length > 0) {
+              console.log('[BatteryDashboard] 从API加载设备数据:', validDeviceData)
+              setBatteryData(validDeviceData)
+              return
+            }
+          }
+        }
+        
+        // API失败时使用fallback mock数据
+        console.log('[BatteryDashboard] API失败，使用mock数据')
+        setBatteryData(mockBatteryData)
+        
+      } catch (error) {
+        console.error('[BatteryDashboard] 初始化失败:', error)
+        setBatteryData(mockBatteryData)
+      }
+    })()
+  }, [])
 
   // 初始恢复 localStorage 中缓存（仅客户端执行）
   useEffect(() => {
@@ -290,8 +351,8 @@ export function BatteryMonitorDashboard() {
   // Topic design:
   // telemetry: fleet/PE-001/battery, fleet/PE-002/battery, etc.
   // status:    fleet/PE-001/status, fleet/PE-002/status, etc.
-  const BATTERY_TOPIC_PATTERN = 'fleet/PE-+/battery'
-  const STATUS_TOPIC_PATTERN = 'fleet/PE-+/status'
+  const BATTERY_TOPICS = ['fleet/PE-001/battery', 'fleet/PE-002/battery', 'fleet/PE-003/battery', 'fleet/PE-004/battery', 'fleet/PE-005/battery']
+  const STATUS_TOPICS = ['fleet/PE-001/status', 'fleet/PE-002/status', 'fleet/PE-003/status', 'fleet/PE-004/status', 'fleet/PE-005/status']
 
   // 当切换选中车辆时：如果是 MQTT 设备 -> 使用实时环形历史；否则生成模拟历史
   useEffect(() => {
@@ -323,12 +384,22 @@ export function BatteryMonitorDashboard() {
 
   // MQTT connect + subscribe
   useEffect(() => {
+    console.log('[BatteryDashboard] MQTT配置检查:', {
+      MQTT_URL: MQTT_URL ? '已配置' : '未配置',
+      MQTT_USERNAME: MQTT_USERNAME ? '已配置' : '未配置',
+      MQTT_PASSWORD: MQTT_PASSWORD ? '已配置' : '未配置',
+      BATTERY_TOPICS,
+      STATUS_TOPICS
+    })
+    
     if (!MQTT_URL) {
       // 生产构建中未注入 URL -> 可能是 Netlify 未配置环境变量或部署前未设置
       if (mqttStatus === 'idle') console.warn('[BatteryDashboard] MQTT_URL missing: skip connect')
       return
     }
     setMqttStatus('connecting')
+    console.log('[BatteryDashboard] 开始连接MQTT...', MQTT_URL)
+    
     try {
       const client = mqtt.connect(MQTT_URL, {
         clientId: `dashboard_${Math.random().toString(36).slice(2,10)}`,
@@ -339,11 +410,24 @@ export function BatteryMonitorDashboard() {
         protocolVersion: 4
       })
       mqttRef.current = client
+      
       client.on('connect', () => { 
+        console.log('[BatteryDashboard] MQTT连接成功！订阅主题:', [...BATTERY_TOPICS, ...STATUS_TOPICS])
         setMqttStatus('connected'); 
-        client.subscribe([BATTERY_TOPIC_PATTERN, STATUS_TOPIC_PATTERN]) 
+        client.subscribe([...BATTERY_TOPICS, ...STATUS_TOPICS], (err) => {
+          if (err) {
+            console.error('[BatteryDashboard] 订阅失败:', err)
+          } else {
+            console.log('[BatteryDashboard] 订阅成功!')
+          }
+        })
       })
-      client.on('error', () => setMqttStatus('error'))
+      
+      client.on('error', (err) => {
+        console.error('[BatteryDashboard] MQTT连接错误:', err)
+        setMqttStatus('error')
+      })
+      
       client.on('message', (topic, payload) => {
         // 从topic中提取设备ID: fleet/PE-001/battery -> PE-001
         const topicParts = topic.split('/')
@@ -399,22 +483,8 @@ export function BatteryMonitorDashboard() {
                 console.log('[BatteryDashboard] 新设备已添加:', deviceId)
               }
               
-              // 更新环形历史（仅针对当前选中设备）
-              if (deviceId === selectedVehicle && histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
-                const arr = deviceHistoryRef.current
-                arr.push({
-                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                  level: histLevel,
-                  voltage: histVoltage,
-                  temperature: histTemperature
-                })
-                if (arr.length > MAX_HISTORY) arr.shift()
-                
-                // 写入 localStorage（轻量，200 条以内）
-                const lsKey = `battery_history_${deviceId}`
-                try { if (typeof window !== 'undefined') window.localStorage.setItem(lsKey, JSON.stringify(arr)) } catch { /* ignore */ }
-                
-                // 转发完整telemetry到共享历史
+              // 转发所有设备的完整telemetry到Redis
+              if (histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
                 try {
                   fetch('/api/telemetry', {
                     method: 'POST',
@@ -431,8 +501,28 @@ export function BatteryMonitorDashboard() {
                       chargingStatus: json.chargingStatus,
                       alerts: json.alerts
                     })
-                  }).catch(() => {})
-                } catch { /* ignore */ }
+                  }).catch((err) => {
+                    console.error('[BatteryDashboard] 转发到Redis失败:', err)
+                  })
+                } catch (err) {
+                  console.error('[BatteryDashboard] 转发到Redis异常:', err)
+                }
+              }
+              
+              // 更新环形历史（仅针对当前选中设备）
+              if (deviceId === selectedVehicle && histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
+                const arr = deviceHistoryRef.current
+                arr.push({
+                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                  level: histLevel,
+                  voltage: histVoltage,
+                  temperature: histTemperature
+                })
+                if (arr.length > MAX_HISTORY) arr.shift()
+                
+                // 写入 localStorage（轻量，200 条以内）
+                const lsKey = `battery_history_${deviceId}`
+                try { if (typeof window !== 'undefined') window.localStorage.setItem(lsKey, JSON.stringify(arr)) } catch { /* ignore */ }
                 
                 // 触发图表刷新
                 setHistoryData([...arr])
@@ -453,7 +543,7 @@ export function BatteryMonitorDashboard() {
     }
     return () => { mqttRef.current?.end(true); mqttRef.current = null }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, BATTERY_TOPIC_PATTERN, STATUS_TOPIC_PATTERN, selectedVehicle])
+  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, selectedVehicle])
 
   // Staleness detection -> add alert after 10 minutes (600000 ms) silence.
   useEffect(() => {
