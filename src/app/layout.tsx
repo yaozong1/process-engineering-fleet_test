@@ -4,6 +4,9 @@ import "./globals.css";
 import ClientBody from "./ClientBody";
 import Script from "next/script";
 
+// 导入服务器初始化脚本 (仅在服务器端执行)
+import '@/services/server-init'
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
