@@ -10,6 +10,7 @@ class MQTTService {
   private client: MqttClient | null = null
   private isRunning = false
   private reconnectInterval: NodeJS.Timeout | null = null
+  private retryInterval: NodeJS.Timeout | null = null
   private recentLogs: string[] = []
 
   // MQTT配置
@@ -56,6 +57,13 @@ class MQTTService {
     this.log(`MQTT Config: url=${this.MQTT_URL ? 'configured' : 'missing'}, username=${this.MQTT_USERNAME ? 'configured' : 'missing'}`)
 
     await this.connect()
+    
+    // 启动定期重试失败数据的定时器 (每30秒)
+    if (!this.retryInterval) {
+      this.retryInterval = setInterval(() => {
+        this.retryFailedData()
+      }, 30000)
+    }
   }
 
   /**
@@ -68,6 +76,11 @@ class MQTTService {
     if (this.reconnectInterval) {
       clearInterval(this.reconnectInterval)
       this.reconnectInterval = null
+    }
+
+    if (this.retryInterval) {
+      clearInterval(this.retryInterval)
+      this.retryInterval = null
     }
 
     if (this.client) {
@@ -184,10 +197,46 @@ class MQTTService {
    */
   private async handleBatteryMessage(deviceId: string, payload: Buffer): Promise<void> {
     try {
-      const data = JSON.parse(payload.toString())
-      console.log(`[MQTT Service] 🔋 Battery data from ${deviceId}:`, data)
+      const rawMessage = payload.toString()
+      this.log(`📨 Raw message from ${deviceId}: ${rawMessage.substring(0, 100)}...`)
+      
+      let data
+      try {
+        data = JSON.parse(rawMessage)
+      } catch (jsonError) {
+        this.log(`⚠️ JSON parse failed for ${deviceId}, attempting to fix...`)
+        
+        // 尝试修复常见的JSON问题
+        let fixedMessage = rawMessage
+          // 修复没有引号的字符串值
+          .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*([,\]}])/g, ': "$1"$2')
+          // 修复数组中没有引号的字符串
+          .replace(/\[\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*\]/g, '["$1"]')
+          // 修复多个没有引号的数组元素
+          .replace(/\[\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*,\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*\]/g, '["$1", "$2"]')
+        
+        try {
+          data = JSON.parse(fixedMessage)
+          this.log(`✅ JSON repair successful for ${deviceId}`)
+        } catch (repairError) {
+          this.log(`❌ JSON repair failed for ${deviceId}: ${repairError}`)
+          // 创建一个默认的数据结构
+          data = {
+            soc: null,
+            voltage: null,
+            temperature: null,
+            health: null,
+            cycleCount: null,
+            estimatedRangeKm: null,
+            chargingStatus: 'unknown',
+            alerts: ['JSON parse failed']
+          }
+        }
+      }
 
-      // 存储到Redis
+      this.log(`🔋 Battery data from ${deviceId}: SOC=${data.soc}%`)
+
+      // 准备存储到Redis的数据
       const telemetryData = {
         device: deviceId,
         ts: Date.now(),
@@ -201,23 +250,88 @@ class MQTTService {
         alerts: Array.isArray(data.alerts) ? data.alerts : []
       }
 
-      // 调用API存储数据
-      const response = await fetch('http://localhost:3000/api/telemetry', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(telemetryData)
-      })
-
-      if (response.ok) {
-        console.log(`[MQTT Service] ✅ Stored battery data for ${deviceId} to Redis`)
-      } else {
-        console.error(`[MQTT Service] ❌ Failed to store battery data for ${deviceId}:`, response.status)
-      }
+      // 带重试机制的API调用
+      await this.storeDataWithRetry(telemetryData)
+      this.log(`✅ Stored battery data for ${deviceId} to Redis`)
 
     } catch (error) {
-      console.error(`[MQTT Service] Error processing battery message from ${deviceId}:`, error)
+      this.log(`❌ Error processing battery message from ${deviceId}: ${error}`)
+    }
+  }
+
+  /**
+   * 带重试机制的数据存储
+   */
+  private async storeDataWithRetry(data: any, maxRetries: number = 5): Promise<void> {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5秒超时
+
+        const response = await fetch('http://localhost:3000/api/telemetry', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data),
+          signal: controller.signal
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          return // 成功，退出重试循环
+        } else {
+          throw new Error(`HTTP ${response.status}`)
+        }
+      } catch (error) {
+        if (i === maxRetries - 1) {
+          this.log(`❌ Failed to store data after ${maxRetries} attempts: ${error}`)
+          // 将失败的数据保存到内存缓存，稍后重试
+          this.addToFailedQueue(data)
+          return // 不抛出错误，避免崩溃
+        }
+        // 指数退避延迟
+        const delay = Math.min(1000 * Math.pow(2, i), 5000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  private failedDataQueue: any[] = []
+
+  /**
+   * 添加失败的数据到队列
+   */
+  private addToFailedQueue(data: any): void {
+    this.failedDataQueue.push({
+      ...data,
+      retryCount: 0,
+      lastAttempt: Date.now()
+    })
+    
+    // 限制队列大小
+    if (this.failedDataQueue.length > 100) {
+      this.failedDataQueue.shift()
+    }
+  }
+
+  /**
+   * 重试失败的数据
+   */
+  private async retryFailedData(): Promise<void> {
+    if (this.failedDataQueue.length === 0) return
+
+    this.log(`🔄 Retrying ${this.failedDataQueue.length} failed data items...`)
+    
+    const itemsToRetry = [...this.failedDataQueue]
+    this.failedDataQueue = []
+
+    for (const item of itemsToRetry) {
+      if (item.retryCount < 3) {
+        item.retryCount++
+        await this.storeDataWithRetry(item, 1) // 单次重试
+      }
     }
   }
 
