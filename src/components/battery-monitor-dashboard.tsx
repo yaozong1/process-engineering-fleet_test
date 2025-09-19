@@ -103,6 +103,8 @@ export function BatteryMonitorDashboard() {
   const MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || ''
   const MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
   const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
+  const ENABLE_FRONTEND_MQTT = (process.env.NEXT_PUBLIC_ENABLE_FRONTEND_MQTT || 'false').toLowerCase() === 'true'
+  const POLL_INTERVAL_MS = Math.max(1000, Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS) || 30000)
 
   // 检查数据是否为重复数据（防止相同数据连续写入）
   const isDuplicateData = (deviceId: string, soc: number, voltage: number, temperature: number): boolean => {
@@ -736,8 +738,12 @@ export function BatteryMonitorDashboard() {
   //   return () => clearInterval(interval)
   // }, [DEVICE_NAME])
 
-  // MQTT connect + subscribe
+  // MQTT connect + subscribe (可通过开关禁用)
   useEffect(() => {
+    if (!ENABLE_FRONTEND_MQTT) {
+      if (mqttStatus !== 'idle') setMqttStatus('idle')
+      return
+    }
     console.log('[BatteryDashboard] MQTT配置检查:', {
       MQTT_URL: MQTT_URL ? '已配置' : '未配置',
       MQTT_USERNAME: MQTT_USERNAME ? '已配置' : '未配置',
@@ -899,7 +905,80 @@ export function BatteryMonitorDashboard() {
     }
     return () => { mqttRef.current?.end(true); mqttRef.current = null }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, selectedVehicle])
+  }, [ENABLE_FRONTEND_MQTT, MQTT_URL, MQTT_USERNAME, MQTT_PASSWORD, selectedVehicle])
+
+  // 轮询后端API以保持UI最新（禁用前端MQTT时启用）
+  useEffect(() => {
+    if (ENABLE_FRONTEND_MQTT) return
+    let stopped = false
+    const interval = setInterval(async () => {
+      if (stopped) return
+      try {
+        // 拉取设备列表
+        const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
+        if (!listRes.ok) return
+        const listJson = await listRes.json()
+        const devices: string[] = Array.isArray(listJson.devices) ? listJson.devices : []
+        if (devices.length === 0) return
+
+        // 拉取各设备最新数据
+        const latestPromises = devices.map(async (deviceId) => {
+          const res = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
+          if (!res.ok) return null
+          const json = await res.json()
+          const latest = Array.isArray(json.data) && json.data[0] ? json.data[0] : null
+          return { deviceId, latest }
+        })
+        const latestList = (await Promise.all(latestPromises)).filter(Boolean) as { deviceId: string; latest: any }[]
+
+        // 更新电池概览
+        setBatteryData(prev => {
+          const nextMap = new Map(prev.map(b => [b.vehicleId, b]))
+          for (const item of latestList) {
+            const latest = item.latest
+            if (!latest) continue
+            const existing = nextMap.get(item.deviceId)
+            const next = {
+              vehicleId: item.deviceId,
+              currentLevel: typeof latest.soc === 'number' ? latest.soc : existing?.currentLevel ?? 0,
+              voltage: typeof latest.voltage === 'number' ? latest.voltage : existing?.voltage ?? 0,
+              temperature: typeof latest.temperature === 'number' ? latest.temperature : existing?.temperature ?? 0,
+              health: typeof latest.health === 'number' ? latest.health : existing?.health ?? 95,
+              cycleCount: typeof latest.cycleCount === 'number' ? latest.cycleCount : existing?.cycleCount ?? 0,
+              estimatedRange: typeof latest.estimatedRangeKm === 'number' ? latest.estimatedRangeKm : existing?.estimatedRange ?? 0,
+              chargingStatus: (typeof latest.chargingStatus === 'string' ? latest.chargingStatus : existing?.chargingStatus ?? 'idle') as BatteryData['chargingStatus'],
+              lastProbe: `Poll ${new Date().toLocaleTimeString()}`,
+              alerts: Array.isArray(latest.alerts) ? latest.alerts : existing?.alerts ?? []
+            } as BatteryData
+            nextMap.set(item.deviceId, next)
+          }
+          return Array.from(nextMap.values())
+        })
+
+        // 若有选中设备，增量刷新其历史（只拉取 STANDARD_LOAD_LIMIT 条）
+        const selected = selectedVehicle || (devices[0] ?? '')
+        if (selected) {
+          const res = await fetch(`/api/telemetry?device=${selected}&limit=${STANDARD_LOAD_LIMIT}`, { cache: 'no-store' })
+          if (res.ok) {
+            const json = await res.json()
+            if (Array.isArray(json.data)) {
+              const historyPoints: BatteryHistoryPoint[] = json.data.map((d: any) => ({
+                time: new Date(d.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                level: typeof d.soc === 'number' ? d.soc : 0,
+                voltage: typeof d.voltage === 'number' ? d.voltage : 0,
+                temperature: typeof d.temperature === 'number' ? d.temperature : 0
+              })).reverse()
+              setHistoryData(historyPoints)
+              deviceHistoryMap.current.set(selected, historyPoints)
+              saveDeviceHistory(selected, historyPoints)
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }, POLL_INTERVAL_MS)
+    return () => { stopped = true; clearInterval(interval) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ENABLE_FRONTEND_MQTT, selectedVehicle, POLL_INTERVAL_MS])
 
   // 数据过期检测 -> 10分钟无数据后添加警报
   useEffect(() => {

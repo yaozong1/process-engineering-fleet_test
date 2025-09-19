@@ -140,6 +140,50 @@ export async function POST(req: NextRequest) {
     }
     const redis = getRedis()
     const key = `telemetry:${device}`
+    // 1) 服务器端去重：对比最近一条
+    try {
+      const lastRaw: any = await (redis as any).lindex(key, 0)
+      if (lastRaw) {
+        let last: any = null
+        if (typeof lastRaw === 'string') {
+          try { last = JSON.parse(lastRaw) } catch { /* ignore */ }
+        } else if (typeof lastRaw === 'object' && lastRaw !== null) {
+          last = lastRaw
+        }
+        if (last && typeof last.soc === 'number') {
+          const sameSoc = Math.abs((last.soc ?? NaN) - item.soc) < 0.0001
+          const sameVolt = Math.abs((last.voltage ?? NaN) - (item.voltage ?? NaN)) < 0.0001
+          const sameTemp = Math.abs((last.temperature ?? NaN) - (item.temperature ?? NaN)) < 0.0001
+          const timeDiff = Math.abs((item.ts ?? 0) - (last.ts ?? 0))
+          if (sameSoc && sameVolt && sameTemp && timeDiff < 30000) {
+            return NextResponse.json({ ok: true, key, skipped: true, reason: 'duplicate_within_30s' })
+          }
+        }
+      }
+    } catch { /* soft-fail */ }
+
+    // 2) 30秒幂等锁：SADD + EXPIRE（跨进程保证一次写入）
+    try {
+      const fmt = (v: any) => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(3) : String(v ?? 'null')
+      const idemSetKey = `idem:${device}`
+      const member = `${fmt(item.soc)}|${fmt(item.voltage)}|${fmt(item.temperature)}`
+      const saddResult = await (redis as any).sadd(idemSetKey, member)
+      if (saddResult !== 1) {
+        return NextResponse.json({ ok: true, key, skipped: true, reason: 'idempotency_sadd' })
+      }
+      try { await (redis as any).expire(idemSetKey, 30) } catch { /* ignore */ }
+    } catch {
+      // 回退方案：SET NX EX 30
+      try {
+        const lockKey = `idem:${device}:${item.soc}:${item.voltage}:${item.temperature}`
+        const setRes = await (redis as any).set(lockKey, '1', { nx: true, ex: 30 })
+        if (setRes !== 'OK') {
+          return NextResponse.json({ ok: true, key, skipped: true, reason: 'idempotency_lock' })
+        }
+      } catch { /* ignore */ }
+    }
+
+    // 3) 写入
     await redis.lpush(key, JSON.stringify(item))
     await redis.ltrim(key, 0, MAX_HISTORY - 1)
     const finalCount = await redis.llen(key)

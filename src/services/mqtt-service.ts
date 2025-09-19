@@ -6,11 +6,19 @@
 
 import mqtt, { MqttClient } from 'mqtt'
 
+// 跨模块/热重载全局单例占位（避免多实例重复订阅与重复存储）
+declare global {
+  // eslint-disable-next-line no-var
+  var __mqttServiceSingleton: any | undefined
+}
+
 class MQTTService {
   private client: MqttClient | null = null
   private isRunning = false
+  private hasStarted = false
   private reconnectInterval: NodeJS.Timeout | null = null
   private retryInterval: NodeJS.Timeout | null = null
+  private recentStoredLog = new Map<string, number>()
   private recentLogs: string[] = []
   
   // 防重复数据机制：记录每个设备最近的数据
@@ -32,6 +40,13 @@ class MQTTService {
 
   constructor() {
     this.log('Initializing backend MQTT service...')
+  }
+
+  private getApiBaseUrl(): string {
+    const envUrl = process.env.API_BASE_URL || process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL
+    if (envUrl) return envUrl.replace(/\/$/, '')
+    const port = process.env.PORT || '3000'
+    return `http://127.0.0.1:${port}`
   }
 
   private log(message: string): void {
@@ -80,6 +95,12 @@ class MQTTService {
    * 启动MQTT服务
    */
   public async start(): Promise<void> {
+    if (this.hasStarted) {
+      this.log('Service already started (guarded)')
+      return
+    }
+    this.hasStarted = true
+
     if (this.isRunning) {
       this.log('Service already running')
       return
@@ -145,12 +166,21 @@ class MQTTService {
       })
 
       this.client.on('connect', () => {
-        this.log('✅ Connected to MQTT broker')
+        const cid = this.client?.options?.clientId
+        const pid = typeof process !== 'undefined' ? (process as any).pid : 'N/A'
+        this.log(`✅ Connected to MQTT broker (clientId=${cid}, pid=${pid})`)
         this.isRunning = true
         this.subscribeToTopics()
       })
 
-      this.client.on('message', (topic: string, payload: Buffer) => {
+      this.client.on('message', (topic: string, payload: Buffer, packet: any) => {
+        if (packet?.dup) {
+          this.log(`📨 DUP message detected on ${topic}, skipping duplicate processing`)
+          return
+        }
+        if (packet?.retain) {
+          this.log(`📌 Retained message received on ${topic}`)
+        }
         this.log(`📨 Received message on topic: ${topic}`)
         this.handleMessage(topic, payload)
       })
@@ -187,7 +217,11 @@ class MQTTService {
   private subscribeToTopics(): void {
     if (!this.client) return
 
-    const allTopics = [...this.BATTERY_TOPICS, ...this.STATUS_TOPICS]
+    const shareGroup = process.env.MQTT_SHARED_GROUP
+    const baseTopics = [...this.BATTERY_TOPICS, ...this.STATUS_TOPICS]
+    const allTopics = shareGroup
+      ? baseTopics.map(t => `$share/${shareGroup}/${t}`)
+      : baseTopics
     
     allTopics.forEach(topic => {
       this.client!.subscribe(topic, { qos: 1 }, (err) => {
@@ -314,9 +348,16 @@ class MQTTService {
         alerts: Array.isArray(data.alerts) ? data.alerts : []
       }
 
-      // 带重试机制的API调用
-      await this.storeDataWithRetry(telemetryData)
-      this.log(`✅ 存储设备 ${deviceId} 的新数据到Redis (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`)
+      // 带重试机制的API调用（仅在真正写入成功时打印“存储成功”）
+      const storeResult = await this.storeDataWithRetry(telemetryData)
+      if (storeResult === 'stored') {
+        const fpKey = `${deviceId}|${(soc ?? 0).toFixed(3)}|${(voltage ?? 0).toFixed(3)}|${(temperature ?? 0).toFixed(3)}`
+        const lastTs = this.recentStoredLog.get(fpKey) || 0
+        if (Date.now() - lastTs >= 30000) {
+          this.recentStoredLog.set(fpKey, Date.now())
+          this.log(`✅ 存储设备 ${deviceId} 的新数据到Redis (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`)
+        }
+      } // 跳过去重/失败的打印
 
     } catch (error) {
       this.log(`❌ Error processing battery message from ${deviceId}: ${error}`)
@@ -326,13 +367,13 @@ class MQTTService {
   /**
    * 带重试机制的数据存储
    */
-  private async storeDataWithRetry(data: any, maxRetries: number = 5): Promise<void> {
+  private async storeDataWithRetry(data: any, maxRetries: number = 5): Promise<'stored' | 'skipped'> {
     for (let i = 0; i < maxRetries; i++) {
       try {
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 5000) // 5秒超时
 
-        const response = await fetch('http://localhost:3000/api/telemetry', {
+        const response = await fetch(`${this.getApiBaseUrl()}/api/telemetry`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -344,7 +385,12 @@ class MQTTService {
         clearTimeout(timeoutId)
 
         if (response.ok) {
-          return // 成功，退出重试循环
+          let result: any = null
+          try { result = await response.json() } catch { /* ignore */ }
+          if (result && (result.skipped === true || result.reason)) {
+            return 'skipped'
+          }
+          return 'stored' // 成功写入
         } else {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -353,13 +399,14 @@ class MQTTService {
           this.log(`❌ Failed to store data after ${maxRetries} attempts: ${error}`)
           // 将失败的数据保存到内存缓存，稍后重试
           this.addToFailedQueue(data)
-          return // 不抛出错误，避免崩溃
+          return 'skipped' // 作为降级处理
         }
         // 指数退避延迟
         const delay = Math.min(1000 * Math.pow(2, i), 5000)
         await new Promise(resolve => setTimeout(resolve, delay))
       }
     }
+    return 'skipped'
   }
 
   private failedDataQueue: any[] = []
@@ -442,8 +489,11 @@ class MQTTService {
   }
 }
 
-// 单例实例
-export const mqttService = new MQTTService()
+// 单例实例（跨模块/热重载）
+export const mqttService = globalThis.__mqttServiceSingleton ?? new MQTTService()
+if (!globalThis.__mqttServiceSingleton) {
+  globalThis.__mqttServiceSingleton = mqttService
+}
 
 // 自动启动服务（在服务器启动时）
 if (typeof window === 'undefined') {
