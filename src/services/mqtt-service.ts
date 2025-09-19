@@ -210,17 +210,26 @@ class MQTTService {
         let fixedMessage = rawMessage
           // 修复没有引号的字符串值
           .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*([,\]}])/g, ': "$1"$2')
-          // 修复数组中没有引号的字符串
+          // 修复数组中没有引号的字符串 (单个元素)
           .replace(/\[\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*\]/g, '["$1"]')
-          // 修复多个没有引号的数组元素
+          // 修复数组中没有引号的字符串 (多个元素)
           .replace(/\[\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*,\s*([a-zA-Z_][a-zA-Z0-9_\s]*)\s*\]/g, '["$1", "$2"]')
+          // 修复像 [Low battery] 这样的数组元素
+          .replace(/\[\s*([a-zA-Z][a-zA-Z0-9\s]*[a-zA-Z0-9])\s*\]/g, '["$1"]')
+          // 修复数组中的多个无引号元素，如 [Low battery, High temp]
+          .replace(/\[\s*([a-zA-Z][a-zA-Z0-9\s]*[a-zA-Z0-9])\s*,\s*([a-zA-Z][a-zA-Z0-9\s]*[a-zA-Z0-9])\s*\]/g, '["$1", "$2"]')
+        
+        this.log(`🔧 Attempting to fix JSON: ${fixedMessage.substring(0, 100)}...`)
         
         try {
           data = JSON.parse(fixedMessage)
           this.log(`✅ JSON repair successful for ${deviceId}`)
         } catch (repairError) {
           this.log(`❌ JSON repair failed for ${deviceId}: ${repairError}`)
-          // 创建一个默认的数据结构
+          this.log(`❌ Original message: ${rawMessage}`)
+          this.log(`❌ Fixed attempt: ${fixedMessage}`)
+          
+          // 创建一个默认的数据结构，不在UI中显示错误
           data = {
             soc: null,
             voltage: null,
@@ -229,7 +238,12 @@ class MQTTService {
             cycleCount: null,
             estimatedRangeKm: null,
             chargingStatus: 'unknown',
-            alerts: ['JSON parse failed']
+            alerts: [] as string[] // 明确指定类型为字符串数组
+          }
+          
+          // 可选：只在开发环境显示错误，生产环境不显示
+          if (process.env.NODE_ENV === 'development') {
+            (data as any).alerts = ['Message format error (dev)']
           }
         }
       }

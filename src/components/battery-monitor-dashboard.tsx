@@ -168,6 +168,27 @@ export function BatteryMonitorDashboard() {
   // 添加新的历史数据点
   const addHistoryPoint = (deviceId: string, point: BatteryHistoryPoint) => {
     let currentHistory = deviceHistoryMap.current.get(deviceId) || []
+    
+    // 如果当前历史记录为空或很少，先尝试从localStorage恢复
+    if (currentHistory.length < 2) {
+      console.log(`[BatteryDashboard] 添加历史点时发现记录少，尝试从localStorage恢复设备 ${deviceId} 的历史数据`)
+      const historyKey = `battery_history_${deviceId}`
+      if (typeof window !== 'undefined') {
+        const storedHistory = localStorage.getItem(historyKey)
+        if (storedHistory) {
+          try {
+            const parsedHistory = JSON.parse(storedHistory)
+            if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+              currentHistory = [...parsedHistory]
+              console.log(`[BatteryDashboard] 从localStorage恢复了 ${parsedHistory.length} 条历史数据`)
+            }
+          } catch (e) {
+            console.warn(`[BatteryDashboard] 解析localStorage历史数据失败:`, e)
+          }
+        }
+      }
+    }
+    
     currentHistory.push(point)
     
     // 限制最大条数
@@ -773,40 +794,8 @@ export function BatteryMonitorDashboard() {
                   temperature: histTemperature
                 }
                 
-                // 添加到设备专用历史记录
+                // 添加到设备专用历史记录（这个函数会处理localStorage恢复和UI更新）
                 addHistoryPoint(deviceId, newHistoryPoint)
-                
-                // 如果是当前选中的设备，更新图表显示
-                if (deviceId === selectedVehicle) {
-                  // 确保在更新图表前先从localStorage恢复历史数据
-                  let currentHistory = deviceHistoryMap.current.get(deviceId) || []
-                  
-                  // 如果历史记录为空或很少，尝试从localStorage恢复
-                  if (currentHistory.length < 2) {
-                    console.log(`[BatteryDashboard] MQTT数据更新时历史记录少，尝试从localStorage恢复设备 ${deviceId} 的历史数据`)
-                    const historyKey = `battery_history_${deviceId}`
-                    if (typeof window !== 'undefined') {
-                      const storedHistory = localStorage.getItem(historyKey)
-                      if (storedHistory) {
-                        try {
-                          const parsedHistory = JSON.parse(storedHistory)
-                          if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-                            currentHistory = [...parsedHistory]
-                            deviceHistoryMap.current.set(deviceId, currentHistory)
-                            console.log(`[BatteryDashboard] 从localStorage恢复了 ${parsedHistory.length} 条历史数据`)
-                          }
-                        } catch (e) {
-                          console.warn(`[BatteryDashboard] 解析localStorage历史数据失败:`, e)
-                        }
-                      }
-                    }
-                  }
-                  
-                  // 获取最新的完整历史记录
-                  const updatedHistory = deviceHistoryMap.current.get(deviceId) || []
-                  setHistoryData([...updatedHistory])
-                  console.log(`[BatteryDashboard] 更新图表显示: ${updatedHistory.length} 条历史数据`)
-                }
               }
               return updated
             })
