@@ -88,6 +88,14 @@ export function BatteryMonitorDashboard() {
   const [mqttStatus, setMqttStatus] = useState<'idle'|'connecting'|'connected'|'error'>('idle')
   const lastTelemetryRef = useRef<number | null>(null)
   
+  // 防重复数据机制：记录每个设备最近的数据，避免重复写入
+  const lastDataRef = useRef<Map<string, {
+    soc: number
+    voltage: number
+    temperature: number
+    timestamp: number
+  }>>(new Map())
+  
   // Manage history data cache by device ID separately
   const deviceHistoryMap = useRef<Map<string, BatteryHistoryPoint[]>>(new Map())
 
@@ -96,38 +104,85 @@ export function BatteryMonitorDashboard() {
   const MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
   const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
 
-  // Configuration constants - 统一数据获取策略
+  // 检查数据是否为重复数据（防止相同数据连续写入）
+  const isDuplicateData = (deviceId: string, soc: number, voltage: number, temperature: number): boolean => {
+    const lastData = lastDataRef.current.get(deviceId)
+    const now = Date.now()
+    
+    if (!lastData) {
+      // 没有历史数据，不是重复
+      lastDataRef.current.set(deviceId, { soc, voltage, temperature, timestamp: now })
+      return false
+    }
+    
+    // 检查是否为相同数据且时间间隔很短（30秒内）
+    const timeDiff = now - lastData.timestamp
+    const isSameData = Math.abs(lastData.soc - soc) < 0.1 && 
+                      Math.abs(lastData.voltage - voltage) < 0.01 && 
+                      Math.abs(lastData.temperature - temperature) < 0.1
+    
+    if (isSameData && timeDiff < 30000) { // 30秒内的相同数据视为重复
+      console.log(`[BatteryDashboard] 检测到设备 ${deviceId} 的重复数据，跳过存储`)
+      return true
+    }
+    
+    // 更新最新数据记录
+    lastDataRef.current.set(deviceId, { soc, voltage, temperature, timestamp: now })
+    return false
+  }
+
+  // Configuration constants - 智能缓存策略
   const MAX_HISTORY = 200 // Local circular buffer capacity
   const STANDARD_LOAD_LIMIT = 10 // 统一的数据获取数量，确保初始加载和同步一致
-  const CACHE_KEY = 'battery_devices_cache_5min' // 延长缓存时间减少页面切换时的重复请求
-  const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes cache - 避免频繁页面切换时重复加载
+  const CACHE_KEY = 'battery_devices_cache_5min' // 设备列表缓存
+  const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes cache
   const SESSION_SYNC_KEY = 'battery_session_synced' // 标记本次会话是否已同步过云端
+  const CLOUD_SYNC_INTERVAL = 2 * 60 * 1000 // 2分钟内不重复从云端获取，使用本地缓存
+  const HISTORY_CACHE_KEY = 'battery_history_cache_timestamp' // 历史数据缓存时间戳
 
   // Unified data flow logic: local cache -> if not available -> sync Redis -> receive MQTT then store in local cache and send to cloud Redis
   
-  // Get device history data (priority: local cache -> Redis)
-  const getDeviceHistory = async (deviceId: string): Promise<BatteryHistoryPoint[]> => {
+  // Get device history data (智能策略: 优先云端数据，但有合理的缓存机制)
+  const getDeviceHistory = async (deviceId: string, forceCloudSync: boolean = false): Promise<BatteryHistoryPoint[]> => {
     const localKey = `battery_history_${deviceId}`
+    const cacheTimestampKey = `${HISTORY_CACHE_KEY}_${deviceId}`
     
-    // 1. First check local localStorage cache
-    if (typeof window !== 'undefined') {
+    // 检查是否需要从云端获取数据
+    const shouldFetchFromCloud = () => {
+      if (forceCloudSync) return true // 强制从云端获取
+      
+      if (typeof window !== 'undefined') {
+        const lastCloudSync = localStorage.getItem(cacheTimestampKey)
+        if (lastCloudSync) {
+          const timeSinceLastSync = Date.now() - parseInt(lastCloudSync)
+          if (timeSinceLastSync < CLOUD_SYNC_INTERVAL) {
+            console.log(`[BatteryDashboard] 设备 ${deviceId} 距上次云端同步仅 ${Math.round(timeSinceLastSync/1000)} 秒，使用本地缓存`)
+            return false // 2分钟内不重复请求云端
+          }
+        }
+      }
+      return true // 超过间隔时间或首次访问，从云端获取
+    }
+    
+    // 1. 先检查本地缓存是否可用（如果不需要从云端获取）
+    if (!shouldFetchFromCloud() && typeof window !== 'undefined') {
       try {
         const cached = localStorage.getItem(localKey)
         if (cached) {
           const parsed = JSON.parse(cached) as BatteryHistoryPoint[]
           if (Array.isArray(parsed) && parsed.length > 0) {
-            console.log(`[BatteryDashboard] Loading device ${deviceId} history data from local cache:`, parsed.length, 'entries')
+            console.log(`[BatteryDashboard] 使用本地缓存数据 - 设备 ${deviceId}:`, parsed.length, '条记录')
             return parsed
           }
         }
       } catch (e) {
-        console.warn(`[BatteryDashboard] Local cache parsing failed for ${deviceId}:`, e)
+        console.warn(`[BatteryDashboard] 本地缓存解析失败 ${deviceId}:`, e)
       }
     }
     
-    // 2. If not available locally, get from Redis
+    // 2. 从云端获取最新数据（首次访问、缓存过期、或强制同步）
     try {
-      console.log(`[BatteryDashboard] Getting device ${deviceId} history data from Redis...`)
+      console.log(`[BatteryDashboard] 从云端获取设备 ${deviceId} 历史数据 ${forceCloudSync ? '(强制同步)' : '(定期同步)'}...`)
       const res = await fetch(`/api/telemetry?device=${deviceId}&limit=${STANDARD_LOAD_LIMIT}`, { cache: 'no-store' })
       if (res.ok) {
         const json = await res.json()
@@ -139,14 +194,34 @@ export function BatteryMonitorDashboard() {
             temperature: typeof d.temperature === 'number' ? d.temperature : 0
           }))
           
-          // Sync to local cache
+          // 更新本地缓存和时间戳
           saveDeviceHistory(deviceId, historyPoints)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(cacheTimestampKey, Date.now().toString())
+          }
           
+          console.log(`[BatteryDashboard] 从云端加载设备 ${deviceId} 数据:`, historyPoints.length, '条记录')
           return historyPoints
         }
       }
     } catch (e) {
-      console.error(`[BatteryDashboard] Failed to get device ${deviceId} history data from Redis:`, e)
+      console.error(`[BatteryDashboard] 云端获取设备 ${deviceId} 数据失败:`, e)
+    }
+    
+    // 3. 云端获取失败时的降级策略：使用本地缓存
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(localKey)
+        if (cached) {
+          const parsed = JSON.parse(cached) as BatteryHistoryPoint[]
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log(`[BatteryDashboard] 云端失败，降级使用本地缓存 - 设备 ${deviceId}:`, parsed.length, '条记录')
+            return parsed
+          }
+        }
+      } catch (e) {
+        console.warn(`[BatteryDashboard] 本地缓存解析失败 ${deviceId}:`, e)
+      }
     }
     
     return []
@@ -263,28 +338,27 @@ export function BatteryMonitorDashboard() {
     }
   }
 
-  // 同步云端数据：以Redis为准，清除本地多余缓存，保持有限数量的历史数据
-  const syncCloudData = async () => {
+  // 同步云端数据：强制从云端获取最新数据（手动触发或定期同步）
+  const syncCloudData = async (isManualSync: boolean = false) => {
     setIsLoading(true)
     try {
-      console.log('[BatteryDashboard] 开始同步云端数据...')
+      console.log(`[BatteryDashboard] 开始${isManualSync ? '手动' : '自动'}同步云端数据...`)
       
-      // 1. 清除所有本地缓存和会话标记
-      if (typeof window !== 'undefined') {
-        // 清除sessionStorage
-        sessionStorage.removeItem(CACHE_KEY)
-        sessionStorage.removeItem(SESSION_SYNC_KEY) // 清除会话同步标记，触发下次重新同步
-        
-        // 清除所有localStorage历史数据
+      // 1. 如果是手动同步，清除缓存时间戳，强制重新获取
+      if (isManualSync && typeof window !== 'undefined') {
+        // 清除所有历史数据的时间戳缓存
         const keysToRemove = []
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i)
-          if (key && key.startsWith('battery_history_')) {
+          if (key && key.startsWith(HISTORY_CACHE_KEY)) {
             keysToRemove.push(key)
           }
         }
         keysToRemove.forEach(key => localStorage.removeItem(key))
-        console.log('[BatteryDashboard] 已清除本地缓存和会话标记:', keysToRemove.length, '个项目')
+        console.log('[BatteryDashboard] 手动同步：已清除历史数据时间戳缓存')
+        
+        // 重置去重数据，确保接收新的数据
+        lastDataRef.current.clear()
       }
 
       // 2. 暂时保存当前选中的设备，以便同步后恢复选择
@@ -320,7 +394,7 @@ export function BatteryMonitorDashboard() {
               const latestData = deviceJson.data[0]
               console.log(`[BatteryDashboard] 云端设备 ${deviceId} 数据:`, latestData, `(历史记录:${deviceJson.data.length}条)`)
               
-              // 5. 将云端历史数据保存到本地localStorage (有限数量)
+              // 5. 将云端历史数据保存到本地localStorage 并更新时间戳
               if (typeof window !== 'undefined' && deviceJson.data.length > 0) {
                 const historyPoints = deviceJson.data.map((d: any) => ({
                   time: new Date(d.ts).toLocaleTimeString(),
@@ -330,8 +404,10 @@ export function BatteryMonitorDashboard() {
                 })).reverse() // 从旧到新排序
                 
                 const lsKey = `battery_history_${deviceId}`
+                const timestampKey = `${HISTORY_CACHE_KEY}_${deviceId}`
                 try {
                   localStorage.setItem(lsKey, JSON.stringify(historyPoints))
+                  localStorage.setItem(timestampKey, Date.now().toString()) // 更新缓存时间戳
                   console.log(`[BatteryDashboard] 已同步设备 ${deviceId} 的 ${historyPoints.length} 条历史数据到本地`)
                 } catch (e) {
                   console.warn(`[BatteryDashboard] 保存设备 ${deviceId} 历史数据失败:`, e)
@@ -369,38 +445,27 @@ export function BatteryMonitorDashboard() {
               : validDeviceData[0].vehicleId
             setSelectedVehicle(deviceToSelect)
             
-            // 如果选中的设备有历史数据，立即加载并显示
+            // 如果选中的设备有历史数据，使用智能缓存加载（强制同步时才强制获取云端数据）
             const selectedDeviceId = deviceToSelect
-            const historyKey = `battery_history_${selectedDeviceId}`
-            if (typeof window !== 'undefined') {
-              const storedHistory = localStorage.getItem(historyKey)
-              if (storedHistory) {
-                try {
-                  const historyData = JSON.parse(storedHistory)
-                  if (Array.isArray(historyData)) {
-                    setHistoryData(historyData)
-                    
-                    // 使用统一的 deviceHistoryMap 存储历史数据
-                    deviceHistoryMap.current.set(selectedDeviceId, historyData)
-                    console.log(`[BatteryDashboard] 已初始化设备 ${selectedDeviceId} 的历史数据:`, historyData.length, '条')
-                    
-                    // 立即更新图表显示
-                    setHistoryData([...historyData])
-                    console.log(`[BatteryDashboard] 已加载设备 ${selectedDeviceId} 的历史数据:`, historyData.length, '条')
-                  }
-                } catch (e) {
-                  console.warn(`[BatteryDashboard] 解析设备 ${selectedDeviceId} 历史数据失败:`, e)
-                }
-              }
+            try {
+              const history = await getDeviceHistory(selectedDeviceId, isManualSync)
+              setHistoryData(history)
+              
+              // 使用统一的 deviceHistoryMap 存储历史数据
+              deviceHistoryMap.current.set(selectedDeviceId, history)
+              console.log(`[BatteryDashboard] 已${isManualSync ? '强制同步' : '智能加载'}设备 ${selectedDeviceId} 的历史数据:`, history.length, '条')
+            } catch (e) {
+              console.warn(`[BatteryDashboard] 加载设备 ${selectedDeviceId} 历史数据失败:`, e)
+              setHistoryData([])
             }
             
-            alert(`Cloud sync completed!\nSynced ${validDeviceData.length} devices\nData synchronized with initial load for consistency`)
+            alert(`${isManualSync ? 'Manual' : 'Auto'} cloud sync completed!\nSynced ${validDeviceData.length} devices\nUsing intelligent caching strategy`)
           } else {
             console.log('[BatteryDashboard] 云端无有效设备数据')
             setBatteryData([])
             setSelectedVehicle("")
             setHistoryData([]) // 清空图表显示
-            alert('Cloud sync completed, but no valid device data found')
+            alert(`${isManualSync ? 'Manual' : 'Auto'} cloud sync completed, but no valid device data found`)
           }
         } else {
           console.log('[BatteryDashboard] 云端设备列表为空')
@@ -561,10 +626,10 @@ export function BatteryMonitorDashboard() {
         // 2. 并发加载所有设备的数据
         const devicePromises = listJson.devices.map(async (deviceId: string) => {
           try {
-            console.log(`[BatteryDashboard] 加载设备 ${deviceId} 的数据...`)
+            console.log(`[BatteryDashboard] 初始化设备 ${deviceId} 的数据...`)
             
-            // 从数据库获取设备历史数据
-            const history = await getDeviceHistory(deviceId)
+            // 从数据库获取设备历史数据 - 首次加载强制从云端获取
+            const history = await getDeviceHistory(deviceId, true)
             
             // 获取最新状态数据
             const res = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
@@ -629,7 +694,7 @@ export function BatteryMonitorDashboard() {
   const BATTERY_TOPICS = ['fleet/+/battery'] // 使用通配符订阅所有设备
   const STATUS_TOPICS = ['fleet/+/status']   // 使用通配符订阅所有设备
 
-  // 当切换选中车辆时：加载对应设备的历史数据（所有设备使用统一逻辑）
+  // 当切换选中车辆时：智能加载对应设备的历史数据
   useEffect(() => {
     if (!selectedVehicle) {
       setHistoryData([])
@@ -637,9 +702,10 @@ export function BatteryMonitorDashboard() {
     }
 
     const loadDeviceHistory = async () => {
-      console.log(`[BatteryDashboard] 加载设备 ${selectedVehicle} 的历史数据...`)
+      console.log(`[BatteryDashboard] 切换到设备 ${selectedVehicle}，智能加载历史数据...`)
       try {
-        const history = await getDeviceHistory(selectedVehicle)
+        // 使用智能缓存策略：页面切换时不强制从云端获取
+        const history = await getDeviceHistory(selectedVehicle, false)
         setHistoryData(history)
         console.log(`[BatteryDashboard] 成功加载设备 ${selectedVehicle} 的历史数据:`, history.length, '条')
       } catch (e) {
@@ -762,6 +828,17 @@ export function BatteryMonitorDashboard() {
                 histLevel = json.soc ?? 0
                 histVoltage = json.voltage ?? 0
                 histTemperature = json.temperature ?? 0
+                
+                // 为新设备初始化去重数据记录（确保值不为 undefined）
+                if (histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
+                  lastDataRef.current.set(deviceId, {
+                    soc: histLevel,
+                    voltage: histVoltage,
+                    temperature: histTemperature,
+                    timestamp: Date.now()
+                  })
+                }
+                
                 const newDevice = { 
                   vehicleId: deviceId, 
                   currentLevel: histLevel, 
@@ -784,43 +861,27 @@ export function BatteryMonitorDashboard() {
                 }
               }
               
-              // 转发所有设备的完整telemetry到Redis
-              if (histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
-                try {
-                  fetch('/api/telemetry', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      device: deviceId,
-                      ts: Date.now(),
-                      soc: histLevel,
-                      voltage: histVoltage,
-                      temperature: histTemperature,
-                      health: json.health,
-                      cycleCount: json.cycleCount,
-                      estimatedRangeKm: json.estimatedRangeKm,
-                      chargingStatus: json.chargingStatus,
-                      alerts: json.alerts
-                    })
-                  }).catch((err) => {
-                    console.error('[BatteryDashboard] 转发到Redis失败:', err)
-                  })
-                } catch (err) {
-                  console.error('[BatteryDashboard] 转发到Redis异常:', err)
-                }
-              }
-              
-              // 更新设备历史（使用统一的deviceHistoryMap管理）
+              // 注意：数据存储已由后端 MQTT 服务处理，前端只负责 UI 更新
+              // 只更新本地历史记录用于图表显示
               if (deviceId && histLevel !== undefined && histVoltage !== undefined && histTemperature !== undefined) {
-                const newHistoryPoint = {
-                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                  level: histLevel,
-                  voltage: histVoltage,
-                  temperature: histTemperature
+                // 检查是否为重复数据（仅用于 UI 更新的去重）
+                if (!isDuplicateData(deviceId, histLevel, histVoltage, histTemperature)) {
+                  console.log(`[BatteryDashboard] 更新设备 ${deviceId} 的UI显示 - SOC: ${histLevel}%, 电压: ${histVoltage}V, 温度: ${histTemperature}°C`)
+                  
+                  // 只更新设备历史记录用于图表显示（不写入数据库）
+                  const newHistoryPoint = {
+                    time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    level: histLevel,
+                    voltage: histVoltage,
+                    temperature: histTemperature
+                  }
+                  
+                  // 添加到设备专用历史记录（这个函数会处理localStorage恢复和UI更新）
+                  addHistoryPoint(deviceId, newHistoryPoint)
+                  console.log(`[BatteryDashboard] 已为设备 ${deviceId} 添加新的历史数据点到UI`)
+                } else {
+                  console.log(`[BatteryDashboard] 跳过重复数据的UI更新 - 设备: ${deviceId}`)
                 }
-                
-                // 添加到设备专用历史记录（这个函数会处理localStorage恢复和UI更新）
-                addHistoryPoint(deviceId, newHistoryPoint)
               }
               return updated
             })
@@ -1116,7 +1177,7 @@ export function BatteryMonitorDashboard() {
               <Button 
                 size="sm" 
                 variant="outline" 
-                onClick={syncCloudData}
+                onClick={() => syncCloudData(true)}
                 disabled={isLoading}
                 className="text-blue-600 hover:text-blue-700"
               >

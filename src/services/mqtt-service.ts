@@ -12,6 +12,14 @@ class MQTTService {
   private reconnectInterval: NodeJS.Timeout | null = null
   private retryInterval: NodeJS.Timeout | null = null
   private recentLogs: string[] = []
+  
+  // 防重复数据机制：记录每个设备最近的数据
+  private lastDataMap = new Map<string, {
+    soc: number
+    voltage: number
+    temperature: number
+    timestamp: number
+  }>()
 
   // MQTT配置
   private readonly MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || 'mqtt://broker.emqx.io:1883'
@@ -37,6 +45,35 @@ class MQTTService {
 
   public getRecentLogs(): string[] {
     return [...this.recentLogs]
+  }
+
+  /**
+   * 检查数据是否为重复数据（防止相同数据连续写入）
+   */
+  private isDuplicateData(deviceId: string, soc: number, voltage: number, temperature: number): boolean {
+    const lastData = this.lastDataMap.get(deviceId)
+    const now = Date.now()
+    
+    if (!lastData) {
+      // 没有历史数据，不是重复
+      this.lastDataMap.set(deviceId, { soc, voltage, temperature, timestamp: now })
+      return false
+    }
+    
+    // 检查是否为相同数据且时间间隔很短（30秒内）
+    const timeDiff = now - lastData.timestamp
+    const isSameData = Math.abs(lastData.soc - soc) < 0.1 && 
+                      Math.abs(lastData.voltage - voltage) < 0.01 && 
+                      Math.abs(lastData.temperature - temperature) < 0.1
+    
+    if (isSameData && timeDiff < 30000) { // 30秒内的相同数据视为重复
+      this.log(`🔄 检测到设备 ${deviceId} 的重复数据，跳过存储 (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`)
+      return true
+    }
+    
+    // 更新最新数据记录
+    this.lastDataMap.set(deviceId, { soc, voltage, temperature, timestamp: now })
+    return false
   }
 
   /**
@@ -250,13 +287,26 @@ class MQTTService {
 
       this.log(`🔋 Battery data from ${deviceId}: SOC=${data.soc}%`)
 
+      // 数据有效性检查
+      const soc = typeof data.soc === 'number' ? data.soc : null
+      const voltage = typeof data.voltage === 'number' ? data.voltage : null
+      const temperature = typeof data.temperature === 'number' ? data.temperature : null
+      
+      // 检查是否为重复数据（只有当所有关键数据都有效时才检查）
+      if (soc !== null && voltage !== null && temperature !== null) {
+        if (this.isDuplicateData(deviceId, soc, voltage, temperature)) {
+          this.log(`⏭️ 跳过设备 ${deviceId} 的重复数据存储`)
+          return // 跳过重复数据的存储
+        }
+      }
+
       // 准备存储到Redis的数据
       const telemetryData = {
         device: deviceId,
         ts: Date.now(),
-        soc: typeof data.soc === 'number' ? data.soc : null,
-        voltage: typeof data.voltage === 'number' ? data.voltage : null,
-        temperature: typeof data.temperature === 'number' ? data.temperature : null,
+        soc,
+        voltage,
+        temperature,
         health: typeof data.health === 'number' ? data.health : null,
         cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : null,
         estimatedRangeKm: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : null,
@@ -266,7 +316,7 @@ class MQTTService {
 
       // 带重试机制的API调用
       await this.storeDataWithRetry(telemetryData)
-      this.log(`✅ Stored battery data for ${deviceId} to Redis`)
+      this.log(`✅ 存储设备 ${deviceId} 的新数据到Redis (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`)
 
     } catch (error) {
       this.log(`❌ Error processing battery message from ${deviceId}: ${error}`)
