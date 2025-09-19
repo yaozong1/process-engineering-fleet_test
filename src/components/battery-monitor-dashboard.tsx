@@ -393,7 +393,7 @@ export function BatteryMonitorDashboard() {
                 return null
               }
               
-              const latestData = deviceJson.data[0]
+              const latestData = deviceJson.data[deviceJson.data.length - 1]
               console.log(`[BatteryDashboard] 云端设备 ${deviceId} 数据:`, latestData, `(历史记录:${deviceJson.data.length}条)`)
               
               // 5. 将云端历史数据保存到本地localStorage 并更新时间戳
@@ -403,7 +403,7 @@ export function BatteryMonitorDashboard() {
                   level: d.soc || 0,
                   voltage: d.voltage || 0,
                   temperature: d.temperature || 0
-                })).reverse() // 从旧到新排序
+                }))
                 
                 const lsKey = `battery_history_${deviceId}`
                 const timestampKey = `${HISTORY_CACHE_KEY}_${deviceId}`
@@ -530,7 +530,7 @@ export function BatteryMonitorDashboard() {
                   return null
                 }
                 
-                const data = deviceJson.data[0] // 使用最新数据
+                const data = deviceJson.data[deviceJson.data.length - 1] // 使用最新数据（最后一条）
                 console.log(`[BatteryDashboard] 加载设备 ${deviceId} 数据:`, data)
                 return {
                   vehicleId: deviceId,
@@ -646,7 +646,7 @@ export function BatteryMonitorDashboard() {
               return null
             }
             
-            const latestData = json.data[0]
+            const latestData = json.data[json.data.length - 1]
             console.log(`[BatteryDashboard] 设备 ${deviceId} 最新数据:`, latestData)
             
             return {
@@ -926,7 +926,7 @@ export function BatteryMonitorDashboard() {
           const res = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
           if (!res.ok) return null
           const json = await res.json()
-          const latest = Array.isArray(json.data) && json.data[0] ? json.data[0] : null
+          const latest = Array.isArray(json.data) && json.data.length ? json.data[json.data.length - 1] : null
           return { deviceId, latest }
         })
         const latestList = (await Promise.all(latestPromises)).filter(Boolean) as { deviceId: string; latest: any }[]
@@ -967,7 +967,7 @@ export function BatteryMonitorDashboard() {
                 level: typeof d.soc === 'number' ? d.soc : 0,
                 voltage: typeof d.voltage === 'number' ? d.voltage : 0,
                 temperature: typeof d.temperature === 'number' ? d.temperature : 0
-              })).reverse()
+              }))
               setHistoryData(historyPoints)
               deviceHistoryMap.current.set(selected, historyPoints)
               saveDeviceHistory(selected, historyPoints)
@@ -1052,7 +1052,7 @@ export function BatteryMonitorDashboard() {
         setHistoryData([...serverHistory])
         
         // 更新设备状态
-        const latest = json.data[0]
+  const latest = json.data[json.data.length - 1]
         if (latest) {
           setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
             ...b,
