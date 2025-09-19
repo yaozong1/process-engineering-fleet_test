@@ -96,12 +96,11 @@ export function BatteryMonitorDashboard() {
   const MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
   const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
 
-  // Configuration constants
+  // Configuration constants - 统一数据获取策略
   const MAX_HISTORY = 200 // Local circular buffer capacity
-  const INITIAL_LOAD_LIMIT = 100 // Number of history records to load from Redis
+  const STANDARD_LOAD_LIMIT = 10 // 统一的数据获取数量，确保初始加载和同步一致
   const CACHE_KEY = 'battery_devices_cache_5min' // 延长缓存时间减少页面切换时的重复请求
   const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes cache - 避免频繁页面切换时重复加载
-  const SYNC_LIMIT = 50 // Number of history records to keep per device during cloud sync
 
   // Unified data flow logic: local cache -> if not available -> sync Redis -> receive MQTT then store in local cache and send to cloud Redis
   
@@ -128,7 +127,7 @@ export function BatteryMonitorDashboard() {
     // 2. If not available locally, get from Redis
     try {
       console.log(`[BatteryDashboard] Getting device ${deviceId} history data from Redis...`)
-      const res = await fetch(`/api/telemetry?device=${deviceId}&limit=${INITIAL_LOAD_LIMIT}`, { cache: 'no-store' })
+      const res = await fetch(`/api/telemetry?device=${deviceId}&limit=${STANDARD_LOAD_LIMIT}`, { cache: 'no-store' })
       if (res.ok) {
         const json = await res.json()
         if (Array.isArray(json.data) && json.data.length > 0) {
@@ -287,8 +286,8 @@ export function BatteryMonitorDashboard() {
         console.log('[BatteryDashboard] 云端设备列表:', listJson)
         
         if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
-          // 4. 为每个设备从云端获取有限的历史数据 (最新50条)
-          const SYNC_LIMIT = 50 // 同步时只保留最新50条历史数据
+          // 4. 为每个设备从云端获取数据 - 与初始加载保持一致
+          const SYNC_LIMIT = STANDARD_LOAD_LIMIT // 改为与初始加载一致的数据量，确保同步行为一致
           const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
             try {
               // 获取设备的最新数据
@@ -380,7 +379,7 @@ export function BatteryMonitorDashboard() {
               }
             }
             
-            alert(`Cloud sync completed!\nSynced ${validDeviceData.length} devices\nKeeping latest ${SYNC_LIMIT} history records per device`)
+            alert(`Cloud sync completed!\nSynced ${validDeviceData.length} devices\nData synchronized with initial load for consistency`)
           } else {
             console.log('[BatteryDashboard] 云端无有效设备数据')
             setBatteryData([])
@@ -407,21 +406,68 @@ export function BatteryMonitorDashboard() {
     }
   }
 
-  // 首次加载：获取设备列表并初始化数据 - 只显示数据库中存在的设备
+  // 首次加载：获取设备列表并初始化数据 - 确保数据一致性
   useEffect(() => {
     (async () => {
       try {
-        // 先检查缓存 - 页面切换时优先使用缓存
+        // 检查缓存的有效性和新鲜度
         const cachedData = checkCache()
         if (cachedData && cachedData.length > 0) {
-          console.log('[BatteryDashboard] 页面切换：使用缓存数据避免重复请求')
+          console.log('[BatteryDashboard] 发现缓存数据，但仍需验证数据新鲜度')
+          // 即使有缓存也要检查是否有更新的数据
           setBatteryData(cachedData)
           setSelectedVehicle(cachedData[0].vehicleId)
           setIsLoading(false)
+          
+          // 后台静默更新，确保数据一致性
+          setTimeout(async () => {
+            try {
+              console.log('[BatteryDashboard] 后台验证数据新鲜度...')
+              const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
+              if (listRes.ok) {
+                const listJson = await listRes.json()
+                if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
+                  // 使用与Sync Cloud相同的数据量，确保一致性
+                  const CONSISTENCY_LIMIT = STANDARD_LOAD_LIMIT // 使用统一的数据量确保一致性
+                  const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
+                    try {
+                      const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${CONSISTENCY_LIMIT}`, { cache: 'no-store' })
+                      if (!deviceRes.ok) return null
+                      const deviceJson = await deviceRes.json()
+                      if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) return null
+                      
+                      const latest = deviceJson.data[0]
+                      return {
+                        vehicleId: deviceId,
+                        currentLevel: typeof latest.soc === 'number' ? latest.soc : 0,
+                        voltage: typeof latest.voltage === 'number' ? latest.voltage : 0,
+                        temperature: typeof latest.temperature === 'number' ? latest.temperature : 0,
+                        health: typeof latest.health === 'number' ? latest.health : 95,
+                        cycleCount: typeof latest.cycleCount === 'number' ? latest.cycleCount : 0,
+                        estimatedRange: typeof latest.estimatedRangeKm === 'number' ? latest.estimatedRangeKm : 0,
+                        chargingStatus: (typeof latest.chargingStatus === 'string' ? latest.chargingStatus : 'idle') as BatteryData['chargingStatus'],
+                        lastProbe: `Fresh Load - ${new Date().toLocaleTimeString()}`,
+                        alerts: Array.isArray(latest.alerts) ? latest.alerts : []
+                      } as BatteryData
+                    } catch { return null }
+                  })
+                  
+                  const freshData = (await Promise.all(deviceDataPromises)).filter(d => d !== null) as BatteryData[]
+                  if (freshData.length > 0) {
+                    console.log('[BatteryDashboard] 后台更新数据成功，保持一致性')
+                    setBatteryData(freshData)
+                    saveToCache(freshData)
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[BatteryDashboard] 后台数据验证失败:', e)
+            }
+          }, 1000) // 1秒后进行后台验证
           return
         }
 
-        console.log('[BatteryDashboard] 获取数据库设备列表...')
+        console.log('[BatteryDashboard] 首次加载：获取新鲜数据...')
         
         // 从API获取设备列表
         const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
@@ -430,10 +476,11 @@ export function BatteryMonitorDashboard() {
           console.log('[BatteryDashboard] 数据库设备列表:', listJson)
           
           if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
-            // 为每个设备获取最新数据
+            // 使用与Sync Cloud一致的数据获取策略
+            const INITIAL_LOAD_LIMIT = STANDARD_LOAD_LIMIT // 改为与Sync Cloud相似的数据量
             const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
               try {
-                const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
+                const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${INITIAL_LOAD_LIMIT}`, { cache: 'no-store' })
                 if (!deviceRes.ok) {
                   console.warn(`[BatteryDashboard] 设备 ${deviceId} 无数据，跳过`)
                   return null
@@ -444,7 +491,7 @@ export function BatteryMonitorDashboard() {
                   return null
                 }
                 
-                const data = deviceJson.data[0]
+                const data = deviceJson.data[0] // 使用最新数据
                 console.log(`[BatteryDashboard] 加载设备 ${deviceId} 数据:`, data)
                 return {
                   vehicleId: deviceId,
@@ -455,7 +502,7 @@ export function BatteryMonitorDashboard() {
                   cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : 0,
                   estimatedRange: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : 0,
                   chargingStatus: (typeof data.chargingStatus === 'string' ? data.chargingStatus : 'idle') as BatteryData['chargingStatus'],
-                  lastProbe: data.ts ? new Date(data.ts).toLocaleTimeString() : '数据库加载',
+                  lastProbe: `Initial Load - ${data.ts ? new Date(data.ts).toLocaleTimeString() : new Date().toLocaleTimeString()}`,
                   alerts: Array.isArray(data.alerts) ? data.alerts : []
                 } as BatteryData
               } catch (error) {
@@ -860,7 +907,7 @@ export function BatteryMonitorDashboard() {
       console.log(`[BatteryDashboard] 手动重载设备 ${selectedVehicle} 的历史数据`)
       
       // 从数据库重新获取历史数据
-      const res = await fetch(`/api/telemetry?device=${selectedVehicle}&limit=${INITIAL_LOAD_LIMIT}&_t=${Date.now()}`)
+      const res = await fetch(`/api/telemetry?device=${selectedVehicle}&limit=${STANDARD_LOAD_LIMIT}&_t=${Date.now()}`)
       if (!res.ok) {
         console.warn(`Device ${selectedVehicle} history reload HTTP error:`, res.status)
         setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
