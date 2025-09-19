@@ -101,6 +101,7 @@ export function BatteryMonitorDashboard() {
   const STANDARD_LOAD_LIMIT = 10 // 统一的数据获取数量，确保初始加载和同步一致
   const CACHE_KEY = 'battery_devices_cache_5min' // 延长缓存时间减少页面切换时的重复请求
   const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes cache - 避免频繁页面切换时重复加载
+  const SESSION_SYNC_KEY = 'battery_session_synced' // 标记本次会话是否已同步过云端
 
   // Unified data flow logic: local cache -> if not available -> sync Redis -> receive MQTT then store in local cache and send to cloud Redis
   
@@ -209,6 +210,19 @@ export function BatteryMonitorDashboard() {
     console.log(`[BatteryDashboard] 已为设备 ${deviceId} 添加历史数据点，当前总数: ${currentHistory.length}`)
   }
 
+  // 检查是否为本次会话的首次加载
+  const isFirstSessionLoad = () => {
+    if (typeof window === 'undefined') return true
+    return !sessionStorage.getItem(SESSION_SYNC_KEY)
+  }
+
+  // 标记本次会话已同步
+  const markSessionSynced = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(SESSION_SYNC_KEY, Date.now().toString())
+    }
+  }
+
   // 检查缓存 - 优化页面切换体验
   const checkCache = () => {
     if (typeof window === 'undefined') return null
@@ -255,10 +269,11 @@ export function BatteryMonitorDashboard() {
     try {
       console.log('[BatteryDashboard] 开始同步云端数据...')
       
-      // 1. 清除所有本地缓存
+      // 1. 清除所有本地缓存和会话标记
       if (typeof window !== 'undefined') {
         // 清除sessionStorage
         sessionStorage.removeItem(CACHE_KEY)
+        sessionStorage.removeItem(SESSION_SYNC_KEY) // 清除会话同步标记，触发下次重新同步
         
         // 清除所有localStorage历史数据
         const keysToRemove = []
@@ -269,7 +284,7 @@ export function BatteryMonitorDashboard() {
           }
         }
         keysToRemove.forEach(key => localStorage.removeItem(key))
-        console.log('[BatteryDashboard] 已清除本地缓存:', keysToRemove.length, '个项目')
+        console.log('[BatteryDashboard] 已清除本地缓存和会话标记:', keysToRemove.length, '个项目')
       }
 
       // 2. 暂时保存当前选中的设备，以便同步后恢复选择
@@ -406,68 +421,26 @@ export function BatteryMonitorDashboard() {
     }
   }
 
-  // 首次加载：获取设备列表并初始化数据 - 确保数据一致性
+  // 首次加载：获取设备列表并初始化数据 - 优化缓存策略
   useEffect(() => {
     (async () => {
       try {
-        // 检查缓存的有效性和新鲜度
-        const cachedData = checkCache()
-        if (cachedData && cachedData.length > 0) {
-          console.log('[BatteryDashboard] 发现缓存数据，但仍需验证数据新鲜度')
-          // 即使有缓存也要检查是否有更新的数据
-          setBatteryData(cachedData)
-          setSelectedVehicle(cachedData[0].vehicleId)
-          setIsLoading(false)
-          
-          // 后台静默更新，确保数据一致性
-          setTimeout(async () => {
-            try {
-              console.log('[BatteryDashboard] 后台验证数据新鲜度...')
-              const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
-              if (listRes.ok) {
-                const listJson = await listRes.json()
-                if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
-                  // 使用与Sync Cloud相同的数据量，确保一致性
-                  const CONSISTENCY_LIMIT = STANDARD_LOAD_LIMIT // 使用统一的数据量确保一致性
-                  const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
-                    try {
-                      const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${CONSISTENCY_LIMIT}`, { cache: 'no-store' })
-                      if (!deviceRes.ok) return null
-                      const deviceJson = await deviceRes.json()
-                      if (!Array.isArray(deviceJson.data) || deviceJson.data.length === 0) return null
-                      
-                      const latest = deviceJson.data[0]
-                      return {
-                        vehicleId: deviceId,
-                        currentLevel: typeof latest.soc === 'number' ? latest.soc : 0,
-                        voltage: typeof latest.voltage === 'number' ? latest.voltage : 0,
-                        temperature: typeof latest.temperature === 'number' ? latest.temperature : 0,
-                        health: typeof latest.health === 'number' ? latest.health : 95,
-                        cycleCount: typeof latest.cycleCount === 'number' ? latest.cycleCount : 0,
-                        estimatedRange: typeof latest.estimatedRangeKm === 'number' ? latest.estimatedRangeKm : 0,
-                        chargingStatus: (typeof latest.chargingStatus === 'string' ? latest.chargingStatus : 'idle') as BatteryData['chargingStatus'],
-                        lastProbe: `Fresh Load - ${new Date().toLocaleTimeString()}`,
-                        alerts: Array.isArray(latest.alerts) ? latest.alerts : []
-                      } as BatteryData
-                    } catch { return null }
-                  })
-                  
-                  const freshData = (await Promise.all(deviceDataPromises)).filter(d => d !== null) as BatteryData[]
-                  if (freshData.length > 0) {
-                    console.log('[BatteryDashboard] 后台更新数据成功，保持一致性')
-                    setBatteryData(freshData)
-                    saveToCache(freshData)
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn('[BatteryDashboard] 后台数据验证失败:', e)
-            }
-          }, 1000) // 1秒后进行后台验证
-          return
+        // 检查是否为本次会话的首次加载
+        const isFirstLoad = isFirstSessionLoad()
+        
+        if (!isFirstLoad) {
+          // 不是首次加载，优先使用缓存
+          const cachedData = checkCache()
+          if (cachedData && cachedData.length > 0) {
+            console.log('[BatteryDashboard] 页面切换回来，使用缓存数据 (5分钟有效期)')
+            setBatteryData(cachedData)
+            setSelectedVehicle(cachedData[0].vehicleId)
+            setIsLoading(false)
+            return
+          }
         }
 
-        console.log('[BatteryDashboard] 首次加载：获取新鲜数据...')
+        console.log(`[BatteryDashboard] ${isFirstLoad ? '首次会话加载' : '缓存失效，重新加载'}...`)
         
         // 从API获取设备列表
         const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
@@ -476,11 +449,10 @@ export function BatteryMonitorDashboard() {
           console.log('[BatteryDashboard] 数据库设备列表:', listJson)
           
           if (Array.isArray(listJson.devices) && listJson.devices.length > 0) {
-            // 使用与Sync Cloud一致的数据获取策略
-            const INITIAL_LOAD_LIMIT = STANDARD_LOAD_LIMIT // 改为与Sync Cloud相似的数据量
+            // 获取设备数据
             const deviceDataPromises = listJson.devices.map(async (deviceId: string) => {
               try {
-                const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${INITIAL_LOAD_LIMIT}`, { cache: 'no-store' })
+                const deviceRes = await fetch(`/api/telemetry?device=${deviceId}&limit=${STANDARD_LOAD_LIMIT}`, { cache: 'no-store' })
                 if (!deviceRes.ok) {
                   console.warn(`[BatteryDashboard] 设备 ${deviceId} 无数据，跳过`)
                   return null
@@ -502,7 +474,7 @@ export function BatteryMonitorDashboard() {
                   cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : 0,
                   estimatedRange: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : 0,
                   chargingStatus: (typeof data.chargingStatus === 'string' ? data.chargingStatus : 'idle') as BatteryData['chargingStatus'],
-                  lastProbe: `Initial Load - ${data.ts ? new Date(data.ts).toLocaleTimeString() : new Date().toLocaleTimeString()}`,
+                  lastProbe: `${isFirstLoad ? 'Session Load' : 'Refresh Load'} - ${data.ts ? new Date(data.ts).toLocaleTimeString() : new Date().toLocaleTimeString()}`,
                   alerts: Array.isArray(data.alerts) ? data.alerts : []
                 } as BatteryData
               } catch (error) {
@@ -518,29 +490,35 @@ export function BatteryMonitorDashboard() {
               console.log('[BatteryDashboard] 最终显示的设备:', validDeviceData.map(d => d.vehicleId))
               setBatteryData(validDeviceData)
               saveToCache(validDeviceData) // 保存到缓存
+              
+              // 标记本次会话已同步（只在首次加载时标记）
+              if (isFirstLoad) {
+                markSessionSynced()
+              }
+              
               // 设置第一个设备为默认选中
               setSelectedVehicle(validDeviceData[0].vehicleId)
-              setIsLoading(false) // 数据加载完成
+              setIsLoading(false)
               return
             } else {
               console.log('[BatteryDashboard] 没有有效的设备数据')
               setBatteryData([])
               setSelectedVehicle("")
-              setIsLoading(false) // 加载完成，但没有数据
+              setIsLoading(false)
               return
             }
           } else {
             console.log('[BatteryDashboard] 数据库设备列表为空')
             setBatteryData([])
             setSelectedVehicle("")
-            setIsLoading(false) // 加载完成，但没有数据
+            setIsLoading(false)
             return
           }
         } else {
           console.error('[BatteryDashboard] 获取设备列表失败:', listRes.status, listRes.statusText)
           setBatteryData([])
           setSelectedVehicle("")
-          setIsLoading(false) // 加载失败
+          setIsLoading(false)
           return
         }
         
