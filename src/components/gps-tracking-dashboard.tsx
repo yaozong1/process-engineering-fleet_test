@@ -101,7 +101,7 @@ export function GpsTrackingDashboard() {
           battery: Math.round(soc),
           status,
           lastUpdate: timeAgo(ts),
-          route: undefined
+          route: data?.gpsFromCache ? 'cached location' : undefined
         }
       }).filter(v => v.id)
       setVehicles(mapped)

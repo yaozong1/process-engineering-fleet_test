@@ -125,6 +125,60 @@ export async function GET(req: NextRequest) {
           } catch { /* ignore */ }
         }
       }
+
+      // Fallback to cached last known GPS when latest has no GPS
+      try {
+        const hasGps = !!(item && item.gps && typeof item.gps.lat === 'number' && typeof item.gps.lng === 'number')
+        if (!hasGps) {
+          const lastKey = `gps:last:${device}`
+          const cachedLast: any = await (redis as any).get(lastKey)
+          let cached: any = null
+          if (cachedLast) {
+            if (typeof cachedLast === 'string') {
+              try { cached = JSON.parse(cachedLast) } catch { /* ignore */ }
+            } else if (typeof cachedLast === 'object') {
+              cached = cachedLast
+            }
+          }
+
+          // If no dedicated last GPS, try tracking latest
+          if (!cached) {
+            const tracking = await (redis as any).get(`tracking:${device}:latest`)
+            if (tracking) {
+              try { cached = typeof tracking === 'string' ? JSON.parse(tracking) : tracking } catch { /* ignore */ }
+            }
+          }
+
+          const cLat = cached?.lat ?? cached?.gps?.lat
+          const cLng = cached?.lng ?? cached?.gps?.lng ?? cached?.lon
+          if (typeof cLat === 'number' && typeof cLng === 'number') {
+            const mergedGps: GPSInfo = {
+              lat: cLat,
+              lng: cLng,
+              speed: typeof cached?.speed === 'number' ? cached.speed : undefined,
+              heading: typeof cached?.heading === 'number' ? cached.heading : undefined,
+              altitude: typeof cached?.altitude === 'number' ? cached.altitude : undefined,
+              accuracy: typeof cached?.accuracy === 'number' ? cached.accuracy : undefined,
+            }
+            if (!item) {
+              item = {
+                device,
+                ts: typeof cached?.ts === 'number' ? cached.ts : Date.now(),
+                soc: 0,
+                gps: mergedGps,
+              } as CompleteTelemetry
+            } else {
+              item.gps = mergedGps
+              if (typeof cached?.ts === 'number' && (!item.ts || cached.ts > item.ts)) {
+                item.ts = cached.ts
+              }
+              // 标记（非破坏性），前端可忽略
+              ;(item as any).gpsFromCache = true
+            }
+          }
+        }
+      } catch { /* soft-fail */ }
+
       return NextResponse.json({ device, count: item ? 1 : 0, data: item ? [item] : [] , latest: item ?? null })
     }
 
@@ -322,6 +376,33 @@ export async function POST(req: NextRequest) {
     // 3) 写入
     await redis.lpush(key, JSON.stringify(item))
     await redis.ltrim(key, 0, MAX_HISTORY - 1)
+
+    // 3.1) 如有GPS，经纬度写入“最后位置缓存”与统一tracking最新点
+    try {
+      if (item.gps && typeof item.gps.lat === 'number' && typeof item.gps.lng === 'number') {
+        const lastGpsKey = `gps:last:${device}`
+        const last = {
+          device,
+          ts: item.ts,
+          lat: item.gps.lat,
+          lng: item.gps.lng,
+          speed: typeof item.gps.speed === 'number' ? item.gps.speed : undefined,
+          heading: typeof item.gps.heading === 'number' ? item.gps.heading : undefined,
+          altitude: typeof item.gps.altitude === 'number' ? item.gps.altitude : undefined,
+          accuracy: typeof item.gps.accuracy === 'number' ? item.gps.accuracy : undefined,
+          source: 'telemetry'
+        }
+        await (redis as any).set(lastGpsKey, JSON.stringify(last))
+        // 可选过期时间：30天
+        try { await (redis as any).expire(lastGpsKey, 60 * 60 * 24 * 30) } catch { /* ignore */ }
+
+        // 同步更新 tracking 最新点，便于其他组件/接口复用
+        const trackingLatestKey = `tracking:${device}:latest`
+        await (redis as any).set(trackingLatestKey, JSON.stringify(last))
+        try { await (redis as any).expire(trackingLatestKey, 60 * 60 * 24 * 30) } catch { /* ignore */ }
+      }
+    } catch { /* soft-fail for caching */ }
+
     const finalCount = await redis.llen(key)
     return NextResponse.json({ ok: true, key, count: finalCount })
   } catch (e: any) {
