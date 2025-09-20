@@ -105,7 +105,8 @@ export function GpsTrackingDashboard() {
         }
       }).filter(v => v.id)
       setVehicles(mapped)
-      if (!selectedVehicle && mapped.length) setSelectedVehicle(mapped.find(v => v.status !== 'offline') || mapped[0])
+      // 移除自动选择车辆逻辑，避免轮询时触发地图居中
+      // if (!selectedVehicle && mapped.length) setSelectedVehicle(mapped.find(v => v.status !== 'offline') || mapped[0])
     } catch (e) {
       console.error('[GPS] loadOnce error:', e)
     }
@@ -122,7 +123,14 @@ export function GpsTrackingDashboard() {
   const activeVehicles = vehicles.filter(v => v.status === "active").length
   const totalVehicles = vehicles.length
   const averageBattery = vehicles.length ? Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / vehicles.length) : 0
-  const mapVehicles = useMemo(() => vehicles.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0)), [vehicles])
+  // 允许红点位置更新，但使用深度比较避免不必要的地图重新渲染
+  const mapVehicles = useMemo(() => {
+    const filtered = vehicles.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0))
+    return filtered
+  }, [
+    vehicles.length,
+    vehicles.map(v => `${v.id}:${v.lat.toFixed(5)}:${v.lng.toFixed(5)}:${v.status}`).join('|')
+  ])
 
   return (
     <div className="space-y-6">
