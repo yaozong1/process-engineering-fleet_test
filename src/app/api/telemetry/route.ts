@@ -3,6 +3,15 @@ import { getRedis } from '@/lib/redis'
 
 const MAX_HISTORY = 200
 
+interface GPSInfo {
+  lat?: number
+  lng?: number
+  speed?: number
+  heading?: number
+  altitude?: number
+  accuracy?: number
+}
+
 interface CompleteTelemetry {
   device: string
   ts: number
@@ -14,6 +23,7 @@ interface CompleteTelemetry {
   estimatedRangeKm?: number
   chargingStatus?: string
   alerts?: string[]
+  gps?: GPSInfo
 }
 
 export async function GET(req: NextRequest) {
@@ -21,6 +31,8 @@ export async function GET(req: NextRequest) {
   const device = searchParams.get('device') || 'PE-001'
   const limit = Math.min(Number(searchParams.get('limit') || MAX_HISTORY), MAX_HISTORY)
   const list = searchParams.get('list')
+  const latest = searchParams.get('latest')
+  const num = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : undefined)
   
   try {
     const redis = getRedis()
@@ -50,8 +62,71 @@ export async function GET(req: NextRequest) {
     // 原有的单设备数据获取逻辑
     const key = `telemetry:${device}`
 
-    const keyExists = await redis.exists(key)
-    const listLength = await redis.llen(key)
+    // 如果请求最新一条，直接读取队首（LPUSH导致索引0为最新）
+    if (latest === '1' || latest === 'true') {
+      const latestRaw: any = await (redis as any).lindex(key, 0)
+      let item: CompleteTelemetry | null = null
+      if (latestRaw) {
+        if (typeof latestRaw === 'object' && latestRaw !== null) {
+          const o: any = latestRaw
+          const g0 = o.gps
+          const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+          const latObj = num(g?.lat ?? (g as any)?.latitude ?? o.lat ?? (o as any)?.latitude)
+          const lngObj = num(g?.lng ?? (g as any)?.lon ?? (g as any)?.longitude ?? o.lng ?? (o as any)?.lon ?? (o as any)?.longitude)
+          item = {
+            device,
+            ts: typeof o.ts === 'number' ? o.ts : Date.now(),
+            soc: o.soc,
+            voltage: typeof o.voltage === 'number' ? o.voltage : undefined,
+            temperature: typeof o.temperature === 'number' ? o.temperature : undefined,
+            health: typeof o.health === 'number' ? o.health : undefined,
+            cycleCount: typeof o.cycleCount === 'number' ? o.cycleCount : undefined,
+            estimatedRangeKm: typeof o.estimatedRangeKm === 'number' ? o.estimatedRangeKm : undefined,
+            chargingStatus: typeof o.chargingStatus === 'string' ? o.chargingStatus : undefined,
+            alerts: Array.isArray(o.alerts) ? o.alerts : undefined,
+            gps: (latObj != null && lngObj != null) ? {
+              lat: latObj,
+              lng: lngObj,
+              speed: num(g.speed),
+              heading: num(g.heading),
+              altitude: num(g.altitude),
+              accuracy: num(g.accuracy),
+            } : undefined
+          }
+        } else if (typeof latestRaw === 'string') {
+          try {
+            const p = JSON.parse(latestRaw)
+            if (p && typeof p.soc === 'number') {
+              const g0 = p.gps
+              const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+              const latObj = num(g?.lat ?? (g as any)?.latitude ?? p.lat ?? (p as any)?.latitude)
+              const lngObj = num(g?.lng ?? (g as any)?.lon ?? (g as any)?.longitude ?? p.lng ?? (p as any)?.lon ?? (p as any)?.longitude)
+              item = {
+                device,
+                ts: typeof p.ts === 'number' ? p.ts : Date.now(),
+                soc: p.soc,
+                voltage: typeof p.voltage === 'number' ? p.voltage : undefined,
+                temperature: typeof p.temperature === 'number' ? p.temperature : undefined,
+                health: typeof p.health === 'number' ? p.health : undefined,
+                cycleCount: typeof p.cycleCount === 'number' ? p.cycleCount : undefined,
+                estimatedRangeKm: typeof p.estimatedRangeKm === 'number' ? p.estimatedRangeKm : undefined,
+                chargingStatus: typeof p.chargingStatus === 'string' ? p.chargingStatus : undefined,
+                alerts: Array.isArray(p.alerts) ? p.alerts : undefined,
+                gps: (latObj != null && lngObj != null) ? {
+                  lat: latObj,
+                  lng: lngObj,
+                  speed: num(g.speed),
+                  heading: num(g.heading),
+                  altitude: num(g.altitude),
+                  accuracy: num(g.accuracy),
+                } : undefined
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      return NextResponse.json({ device, count: item ? 1 : 0, data: item ? [item] : [] , latest: item ?? null })
+    }
 
     const raw = await redis.lrange<string>(key, 0, limit - 1)
 
@@ -62,6 +137,10 @@ export async function GET(req: NextRequest) {
       // If it's already an object, use it directly
       if (typeof r === 'object' && r !== null && typeof (r as any).soc === 'number') {
         const obj = r as any
+        const g0 = obj.gps
+        const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+        const latObj = num(g?.lat ?? (g as any)?.latitude ?? obj.lat ?? (obj as any)?.latitude)
+        const lngObj = num(g?.lng ?? (g as any)?.lon ?? (g as any)?.longitude ?? obj.lng ?? (obj as any)?.lon ?? (obj as any)?.longitude)
         out.push({
           device,
           ts: typeof obj.ts === 'number' ? obj.ts : Date.now(),
@@ -72,7 +151,15 @@ export async function GET(req: NextRequest) {
           cycleCount: typeof obj.cycleCount === 'number' ? obj.cycleCount : undefined,
           estimatedRangeKm: typeof obj.estimatedRangeKm === 'number' ? obj.estimatedRangeKm : undefined,
           chargingStatus: typeof obj.chargingStatus === 'string' ? obj.chargingStatus : undefined,
-          alerts: Array.isArray(obj.alerts) ? obj.alerts : undefined
+          alerts: Array.isArray(obj.alerts) ? obj.alerts : undefined,
+          gps: (latObj != null && lngObj != null) ? {
+            lat: latObj,
+            lng: lngObj,
+            speed: num(g.speed),
+            heading: num(g.heading),
+            altitude: num(g.altitude),
+            accuracy: num(g.accuracy),
+          } : undefined
         })
         continue
       }
@@ -86,6 +173,10 @@ export async function GET(req: NextRequest) {
           // JSON parse failed, skip
         }
         if (parsed && typeof parsed.soc === 'number') {
+          const g0 = parsed.gps
+          const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+          const latObj = num(g?.lat ?? (g as any)?.latitude ?? parsed.lat ?? (parsed as any)?.latitude)
+          const lngObj = num(g?.lng ?? (g as any)?.lon ?? (g as any)?.longitude ?? parsed.lng ?? (parsed as any)?.lon ?? (parsed as any)?.longitude)
           out.push({
             device,
             ts: typeof parsed.ts === 'number' ? parsed.ts : Date.now(),
@@ -96,7 +187,15 @@ export async function GET(req: NextRequest) {
             cycleCount: typeof parsed.cycleCount === 'number' ? parsed.cycleCount : undefined,
             estimatedRangeKm: typeof parsed.estimatedRangeKm === 'number' ? parsed.estimatedRangeKm : undefined,
             chargingStatus: typeof parsed.chargingStatus === 'string' ? parsed.chargingStatus : undefined,
-            alerts: Array.isArray(parsed.alerts) ? parsed.alerts : undefined
+            alerts: Array.isArray(parsed.alerts) ? parsed.alerts : undefined,
+            gps: (latObj != null && lngObj != null) ? {
+              lat: latObj,
+              lng: lngObj,
+              speed: num(g.speed),
+              heading: num(g.heading),
+              altitude: num(g.altitude),
+              accuracy: num(g.accuracy),
+            } : undefined
           })
           continue
         }
@@ -126,6 +225,31 @@ export async function POST(req: NextRequest) {
     if (Number.isNaN(socNum)) {
       return NextResponse.json({ error: 'invalid_soc' }, { status: 400 })
     }
+    // 兼容平铺的 lat/lng；优先使用 body.gps
+    const gps: GPSInfo | undefined = (() => {
+      const g0 = body.gps
+      const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+      const num = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : undefined)
+      if (g && typeof g === 'object') {
+        const out: GPSInfo = {
+          lat: num(g.lat),
+          lng: num(g.lng),
+          speed: num(g.speed),
+          heading: num(g.heading),
+          altitude: num(g.altitude),
+          accuracy: num(g.accuracy)
+        }
+        return (out.lat != null && out.lng != null) ? out : undefined
+      }
+      const lat = num(body.lat ?? body.latitude)
+      const lng = num(body.lng ?? body.lon ?? body.longitude)
+      const speed = num(body.speed)
+      const heading = num(body.heading ?? body.course)
+      if (lat != null && lng != null) {
+        return { lat, lng, speed, heading }
+      }
+      return undefined
+    })()
     const item: CompleteTelemetry = {
       device,
       ts: body.ts ? Number(body.ts) : Date.now(),
@@ -136,11 +260,12 @@ export async function POST(req: NextRequest) {
       cycleCount: typeof body.cycleCount === 'number' ? body.cycleCount : undefined,
       estimatedRangeKm: typeof body.estimatedRangeKm === 'number' ? body.estimatedRangeKm : undefined,
       chargingStatus: typeof body.chargingStatus === 'string' ? body.chargingStatus : undefined,
-      alerts: Array.isArray(body.alerts) ? body.alerts : undefined
+      alerts: Array.isArray(body.alerts) ? body.alerts : undefined,
+      gps
     }
     const redis = getRedis()
     const key = `telemetry:${device}`
-    // 1) 服务器端去重：对比最近一条
+    // 1) 服务器端去重：对比最近一条（电池与GPS均未变化且30秒内才跳过）
     try {
       const lastRaw: any = await (redis as any).lindex(key, 0)
       if (lastRaw) {
@@ -154,8 +279,19 @@ export async function POST(req: NextRequest) {
           const sameSoc = Math.abs((last.soc ?? NaN) - item.soc) < 0.0001
           const sameVolt = Math.abs((last.voltage ?? NaN) - (item.voltage ?? NaN)) < 0.0001
           const sameTemp = Math.abs((last.temperature ?? NaN) - (item.temperature ?? NaN)) < 0.0001
+          // GPS 比较（经纬度均存在且变化很小才认为相同）；阈值约0.0001度（~11米）
+          const num = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : undefined)
+          const lastLat = num(last?.gps?.lat ?? last?.lat ?? last?.latitude)
+          const lastLng = num(last?.gps?.lng ?? last?.gps?.lon ?? last?.lng ?? last?.lon ?? last?.longitude)
+          const curLat = num(item?.gps?.lat)
+          const curLng = num(item?.gps?.lng)
+          const bothHaveGps = lastLat != null && lastLng != null && curLat != null && curLng != null
+          const bothNoGps = (lastLat == null || lastLng == null) && (curLat == null || curLng == null)
+          const sameGps = bothHaveGps
+            ? (Math.abs((lastLat as number) - (curLat as number)) < 0.0001 && Math.abs((lastLng as number) - (curLng as number)) < 0.0001)
+            : bothNoGps
           const timeDiff = Math.abs((item.ts ?? 0) - (last.ts ?? 0))
-          if (sameSoc && sameVolt && sameTemp && timeDiff < 30000) {
+          if (sameSoc && sameVolt && sameTemp && sameGps && timeDiff < 30000) {
             return NextResponse.json({ ok: true, key, skipped: true, reason: 'duplicate_within_30s' })
           }
         }
@@ -164,9 +300,9 @@ export async function POST(req: NextRequest) {
 
     // 2) 30秒幂等锁：SADD + EXPIRE（跨进程保证一次写入）
     try {
-      const fmt = (v: any) => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(3) : String(v ?? 'null')
+      const fmt = (v: any) => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(5) : String(v ?? 'null')
       const idemSetKey = `idem:${device}`
-      const member = `${fmt(item.soc)}|${fmt(item.voltage)}|${fmt(item.temperature)}`
+      const member = `${fmt(item.soc)}|${fmt(item.voltage)}|${fmt(item.temperature)}|${fmt(item.gps?.lat)}|${fmt(item.gps?.lng)}`
       const saddResult = await (redis as any).sadd(idemSetKey, member)
       if (saddResult !== 1) {
         return NextResponse.json({ ok: true, key, skipped: true, reason: 'idempotency_sadd' })
@@ -175,7 +311,7 @@ export async function POST(req: NextRequest) {
     } catch {
       // 回退方案：SET NX EX 30
       try {
-        const lockKey = `idem:${device}:${item.soc}:${item.voltage}:${item.temperature}`
+        const lockKey = `idem:${device}:${item.soc}:${item.voltage}:${item.temperature}:${item.gps?.lat}:${item.gps?.lng}`
         const setRes = await (redis as any).set(lockKey, '1', { nx: true, ex: 30 })
         if (setRes !== 'OK') {
           return NextResponse.json({ ok: true, key, skipped: true, reason: 'idempotency_lock' })

@@ -1,19 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  MapPin,
-  Navigation,
-  Clock,
-  Zap,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle,
-  Truck
-} from "lucide-react"
+import { MapPin, Navigation, Clock, Zap, RefreshCw, AlertCircle, Truck } from "lucide-react"
 import dynamic from "next/dynamic"
 
 // Dynamically import map component to avoid SSR issues
@@ -33,64 +24,6 @@ interface Vehicle {
   lastUpdate: string
   route?: string
 }
-
-const mockVehicles: Vehicle[] = [
-  {
-    id: "PE-001",
-    name: "Process Truck 1",
-    lat: 40.7128,
-    lng: -74.0060,
-    speed: 45,
-    battery: 78,
-    status: "active",
-    lastUpdate: "2 mins ago",
-    route: "Downtown Route"
-  },
-  {
-    id: "PE-002",
-    name: "Process Truck 2",
-    lat: 40.7589,
-    lng: -73.9851,
-    speed: 0,
-    battery: 92,
-    status: "idle",
-    lastUpdate: "5 mins ago",
-    route: "Midtown Route"
-  },
-  {
-    id: "PE-003",
-    name: "Process Truck 3",
-    lat: 40.6892,
-    lng: -74.0445,
-    speed: 28,
-    battery: 15,
-    status: "active",
-    lastUpdate: "1 min ago",
-    route: "Harbor Route"
-  },
-  {
-    id: "PE-004",
-    name: "Process Truck 4",
-    lat: 40.7505,
-    lng: -73.9934,
-    speed: 0,
-    battery: 65,
-    status: "maintenance",
-    lastUpdate: "2 hours ago",
-    route: "Central Route"
-  },
-  {
-    id: "PE-005",
-    name: "Process Truck 5",
-    lat: 40.7282,
-    lng: -73.7949,
-    speed: 52,
-    battery: 43,
-    status: "active",
-    lastUpdate: "30 secs ago",
-    route: "Airport Route"
-  }
-]
 
 function getStatusColor(status: Vehicle["status"]) {
   switch (status) {
@@ -113,40 +46,83 @@ function getStatusBadgeVariant(status: Vehicle["status"]) {
 }
 
 export function GpsTrackingDashboard() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>(mockVehicles)
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [isLiveTracking, setIsLiveTracking] = useState(true)
+  const POLL_INTERVAL_MS = Math.max(3000, Number(process.env.NEXT_PUBLIC_GPS_POLL_INTERVAL_MS) || 5000)
 
-  // Simulate real-time updates
-  useEffect(() => {
-    if (!isLiveTracking) return
+  const kphToMph = (kph?: number) => (typeof kph === 'number' && Number.isFinite(kph)) ? Math.round(kph * 0.621371) : 0
+  const timeAgo = (ts: number) => {
+    const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+    if (sec < 15) return 'Just now'
+    if (sec < 60) return `${sec}s ago`
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min} min${min>1?'s':''} ago`
+    const hr = Math.floor(min / 60)
+    return `${hr} hour${hr>1?'s':''} ago`
+  }
 
-    const interval = setInterval(() => {
-      setVehicles(prev => prev.map(vehicle => {
-        if (vehicle.status === "active") {
-          // Small random movements to simulate real-time tracking
-          const latOffset = (Math.random() - 0.5) * 0.001
-          const lngOffset = (Math.random() - 0.5) * 0.001
-          const speedChange = (Math.random() - 0.5) * 10
+  async function fetchDevices(): Promise<string[]> {
+    const res = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
+    if (!res.ok) return []
+    const json = await res.json()
+    return Array.isArray(json.devices) ? json.devices : []
+  }
 
-          return {
-            ...vehicle,
-            lat: vehicle.lat + latOffset,
-            lng: vehicle.lng + lngOffset,
-            speed: Math.max(0, Math.min(80, vehicle.speed + speedChange)),
-            lastUpdate: "Just now"
-          }
+  async function fetchLatest(deviceId: string): Promise<any | null> {
+    const res = await fetch(`/api/telemetry?device=${encodeURIComponent(deviceId)}&latest=1`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const json = await res.json()
+    try { console.debug('[GPS] latest raw for', deviceId, JSON.stringify(json)) } catch {}
+    if (json && json.latest) return json.latest
+    if (Array.isArray(json.data) && json.data.length) return json.data[0]
+    return null
+  }
+
+  async function loadOnce() {
+    try {
+      const deviceIds = await fetchDevices()
+      const latestList = await Promise.all(deviceIds.map(async id => ({ id, data: await fetchLatest(id) })))
+      const mapped: Vehicle[] = latestList.map(({ id, data }) => {
+        const gps = data?.gps
+        const soc = typeof data?.soc === 'number' ? data.soc : 0
+        const ts = typeof data?.ts === 'number' ? data.ts : Date.now()
+        const hasGps = gps && typeof gps.lat === 'number' && typeof gps.lng === 'number'
+        const speedMph = kphToMph(gps?.speed)
+        const status: Vehicle['status'] = !hasGps
+          ? 'offline'
+          : (speedMph > 1 ? 'active' : 'idle')
+        return {
+          id,
+          name: id,
+          lat: hasGps ? gps.lat : 0,
+          lng: hasGps ? gps.lng : 0,
+          speed: speedMph,
+          battery: Math.round(soc),
+          status,
+          lastUpdate: timeAgo(ts),
+          route: undefined
         }
-        return vehicle
-      }))
-    }, 3000)
+      }).filter(v => v.id)
+      setVehicles(mapped)
+      if (!selectedVehicle && mapped.length) setSelectedVehicle(mapped.find(v => v.status !== 'offline') || mapped[0])
+    } catch (e) {
+      console.error('[GPS] loadOnce error:', e)
+    }
+  }
 
-    return () => clearInterval(interval)
+  useEffect(() => {
+    loadOnce()
+    if (!isLiveTracking) return
+    const timer = setInterval(loadOnce, POLL_INTERVAL_MS)
+    return () => clearInterval(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLiveTracking])
 
   const activeVehicles = vehicles.filter(v => v.status === "active").length
   const totalVehicles = vehicles.length
-  const averageBattery = Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / vehicles.length)
+  const averageBattery = vehicles.length ? Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / vehicles.length) : 0
+  const mapVehicles = useMemo(() => vehicles.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0)), [vehicles])
 
   return (
     <div className="space-y-6">
@@ -227,7 +203,7 @@ export function GpsTrackingDashboard() {
           </CardHeader>
           <CardContent>
             <MapComponent
-              vehicles={vehicles}
+              vehicles={mapVehicles}
               selectedVehicle={selectedVehicle}
               onVehicleSelect={setSelectedVehicle}
             />
@@ -274,6 +250,7 @@ export function GpsTrackingDashboard() {
 
                   <div className="mt-2">
                     <p className="text-xs text-gray-500">{vehicle.route}</p>
+                    <p className="text-[10px] text-gray-400">lat: {Number.isFinite(vehicle.lat) ? vehicle.lat.toFixed(5) : 'n/a'}, lng: {Number.isFinite(vehicle.lng) ? vehicle.lng.toFixed(5) : 'n/a'}</p>
                     <p className="text-xs text-gray-400">Updated: {vehicle.lastUpdate}</p>
                   </div>
                 </div>

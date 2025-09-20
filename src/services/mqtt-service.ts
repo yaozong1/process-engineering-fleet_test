@@ -26,6 +26,8 @@ class MQTTService {
     soc: number
     voltage: number
     temperature: number
+    gpsLat?: number
+    gpsLng?: number
     timestamp: number
   }>()
 
@@ -65,13 +67,13 @@ class MQTTService {
   /**
    * 检查数据是否为重复数据（防止相同数据连续写入）
    */
-  private isDuplicateData(deviceId: string, soc: number, voltage: number, temperature: number): boolean {
+  private isDuplicateData(deviceId: string, soc: number, voltage: number, temperature: number, gpsLat?: number | null, gpsLng?: number | null): boolean {
     const lastData = this.lastDataMap.get(deviceId)
     const now = Date.now()
     
     if (!lastData) {
       // 没有历史数据，不是重复
-      this.lastDataMap.set(deviceId, { soc, voltage, temperature, timestamp: now })
+      this.lastDataMap.set(deviceId, { soc, voltage, temperature, gpsLat: gpsLat ?? undefined, gpsLng: gpsLng ?? undefined, timestamp: now })
       return false
     }
     
@@ -80,14 +82,20 @@ class MQTTService {
     const isSameData = Math.abs(lastData.soc - soc) < 0.1 && 
                       Math.abs(lastData.voltage - voltage) < 0.01 && 
                       Math.abs(lastData.temperature - temperature) < 0.1
+    // GPS 相似阈值（约 ~11m）
+    const hasGps = gpsLat != null && gpsLng != null
+    const lastHasGps = lastData.gpsLat != null && lastData.gpsLng != null
+    const isSameGps = hasGps && lastHasGps
+      ? (Math.abs((lastData.gpsLat as number) - (gpsLat as number)) < 0.0001 && Math.abs((lastData.gpsLng as number) - (gpsLng as number)) < 0.0001)
+      : (!hasGps && !lastHasGps) // 两次都没有GPS，也视为同一GPS
     
-    if (isSameData && timeDiff < 30000) { // 30秒内的相同数据视为重复
+    if (isSameData && isSameGps && timeDiff < 30000) { // 30秒内电池与GPS均未变化，视为重复
       this.log(`🔄 检测到设备 ${deviceId} 的重复数据，跳过存储 (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`)
       return true
     }
     
     // 更新最新数据记录
-    this.lastDataMap.set(deviceId, { soc, voltage, temperature, timestamp: now })
+    this.lastDataMap.set(deviceId, { soc, voltage, temperature, gpsLat: gpsLat ?? undefined, gpsLng: gpsLng ?? undefined, timestamp: now })
     return false
   }
 
@@ -326,9 +334,16 @@ class MQTTService {
       const voltage = typeof data.voltage === 'number' ? data.voltage : null
       const temperature = typeof data.temperature === 'number' ? data.temperature : null
       
-      // 检查是否为重复数据（只有当所有关键数据都有效时才检查）
+      // 预取 GPS（用于去重判定与透传）
+      const num = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : undefined)
+  const rawGps = (data as any).gps
+  const g = rawGps && typeof rawGps === 'object' ? (Array.isArray(rawGps) ? rawGps[0] : rawGps) : undefined
+  const gpsLat = g && typeof g === 'object' ? (num(g.lat ?? g.latitude)) : (num((data as any).lat ?? (data as any).latitude))
+  const gpsLng = g && typeof g === 'object' ? (num(g.lng ?? g.lon ?? g.longitude)) : (num((data as any).lng ?? (data as any).lon ?? (data as any).longitude))
+
+      // 检查是否为重复数据（只有当所有关键数据都有效时才检查；GPS变化将视为非重复）
       if (soc !== null && voltage !== null && temperature !== null) {
-        if (this.isDuplicateData(deviceId, soc, voltage, temperature)) {
+        if (this.isDuplicateData(deviceId, soc, voltage, temperature, gpsLat, gpsLng)) {
           this.log(`⏭️ 跳过设备 ${deviceId} 的重复数据存储`)
           return // 跳过重复数据的存储
         }
@@ -345,7 +360,21 @@ class MQTTService {
         cycleCount: typeof data.cycleCount === 'number' ? data.cycleCount : null,
         estimatedRangeKm: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : null,
         chargingStatus: typeof data.chargingStatus === 'string' ? data.chargingStatus : null,
-        alerts: Array.isArray(data.alerts) ? data.alerts : []
+        alerts: Array.isArray(data.alerts) ? data.alerts : [],
+        gps: (() => {
+          const speed = num(g?.speed ?? (data as any).speed)
+          const heading = num(g?.heading ?? (g as any)?.course ?? (data as any).heading ?? (data as any).course)
+          const altitude = num((g as any)?.altitude)
+          const accuracy = num((g as any)?.accuracy)
+          if (gpsLat != null && gpsLng != null) return { lat: gpsLat, lng: gpsLng, speed, heading, altitude, accuracy }
+          return undefined
+        })()
+      }
+
+      if (telemetryData.gps && typeof telemetryData.gps.lat === 'number' && typeof telemetryData.gps.lng === 'number') {
+        this.log(`📍 GPS for ${deviceId}: lat=${telemetryData.gps.lat}, lng=${telemetryData.gps.lng}`)
+      } else {
+        this.log(`📍 GPS for ${deviceId}: none`)
       }
 
       // 带重试机制的API调用（仅在真正写入成功时打印“存储成功”）

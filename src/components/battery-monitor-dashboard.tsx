@@ -31,6 +31,7 @@ interface BatteryData {
   chargingStatus: "charging" | "discharging" | "idle" | "full"
   lastProbe: string
   alerts: string[]
+  gps?: { lat?: number; lng?: number; speed?: number }
 }
 
 interface BatteryHistoryPoint {
@@ -394,6 +395,10 @@ export function BatteryMonitorDashboard() {
               }
               
               const latestData = deviceJson.data[deviceJson.data.length - 1]
+              const gpsSrc = latestData?.gps || {}
+              const gpsLat = typeof gpsSrc.lat === 'number' ? gpsSrc.lat : (typeof latestData?.lat === 'number' ? latestData.lat : (typeof latestData?.latitude === 'number' ? latestData.latitude : undefined))
+              const gpsLng = typeof gpsSrc.lng === 'number' ? gpsSrc.lng : (typeof latestData?.lng === 'number' ? latestData.lng : (typeof latestData?.lon === 'number' ? latestData.lon : (typeof latestData?.longitude === 'number' ? latestData.longitude : undefined)))
+              const gpsSpeed = typeof gpsSrc.speed === 'number' ? gpsSrc.speed : (typeof latestData?.speed === 'number' ? latestData.speed : undefined)
               console.log(`[BatteryDashboard] 云端设备 ${deviceId} 数据:`, latestData, `(历史记录:${deviceJson.data.length}条)`)
               
               // 5. 将云端历史数据保存到本地localStorage 并更新时间戳
@@ -426,7 +431,8 @@ export function BatteryMonitorDashboard() {
                 estimatedRange: typeof latestData.estimatedRangeKm === 'number' ? latestData.estimatedRangeKm : 0,
                 chargingStatus: (typeof latestData.chargingStatus === 'string' ? latestData.chargingStatus : 'idle') as BatteryData['chargingStatus'],
                 lastProbe: `Cloud Sync - ${new Date().toLocaleTimeString()}`,
-                alerts: Array.isArray(latestData.alerts) ? latestData.alerts : []
+                  alerts: Array.isArray(latestData.alerts) ? latestData.alerts : [],
+                  gps: (gpsLat != null && gpsLng != null) ? { lat: gpsLat, lng: gpsLng, speed: gpsSpeed } : undefined
               } as BatteryData
             } catch (error) {
               console.error(`[BatteryDashboard] 同步设备 ${deviceId} 失败:`, error)
@@ -531,6 +537,10 @@ export function BatteryMonitorDashboard() {
                 }
                 
                 const data = deviceJson.data[deviceJson.data.length - 1] // 使用最新数据（最后一条）
+                const gpsSrc2 = data?.gps || {}
+                const gpsLat2 = typeof gpsSrc2.lat === 'number' ? gpsSrc2.lat : (typeof data?.lat === 'number' ? data.lat : (typeof data?.latitude === 'number' ? data.latitude : undefined))
+                const gpsLng2 = typeof gpsSrc2.lng === 'number' ? gpsSrc2.lng : (typeof data?.lng === 'number' ? data.lng : (typeof data?.lon === 'number' ? data.lon : (typeof data?.longitude === 'number' ? data.longitude : undefined)))
+                const gpsSpeed2 = typeof gpsSrc2.speed === 'number' ? gpsSrc2.speed : (typeof data?.speed === 'number' ? data.speed : undefined)
                 console.log(`[BatteryDashboard] 加载设备 ${deviceId} 数据:`, data)
                 return {
                   vehicleId: deviceId,
@@ -542,7 +552,8 @@ export function BatteryMonitorDashboard() {
                   estimatedRange: typeof data.estimatedRangeKm === 'number' ? data.estimatedRangeKm : 0,
                   chargingStatus: (typeof data.chargingStatus === 'string' ? data.chargingStatus : 'idle') as BatteryData['chargingStatus'],
                   lastProbe: `${isFirstLoad ? 'Session Load' : 'Refresh Load'} - ${data.ts ? new Date(data.ts).toLocaleTimeString() : new Date().toLocaleTimeString()}`,
-                  alerts: Array.isArray(data.alerts) ? data.alerts : []
+                  alerts: Array.isArray(data.alerts) ? data.alerts : [],
+                  gps: (gpsLat2 != null && gpsLng2 != null) ? { lat: gpsLat2, lng: gpsLng2, speed: gpsSpeed2 } : undefined
                 } as BatteryData
               } catch (error) {
                 console.error(`[BatteryDashboard] 加载设备 ${deviceId} 失败:`, error)
@@ -647,6 +658,10 @@ export function BatteryMonitorDashboard() {
             }
             
             const latestData = json.data[json.data.length - 1]
+            const gpsSrc3 = latestData?.gps || {}
+            const gpsLat3 = typeof gpsSrc3.lat === 'number' ? gpsSrc3.lat : (typeof latestData?.lat === 'number' ? latestData.lat : (typeof latestData?.latitude === 'number' ? latestData.latitude : undefined))
+            const gpsLng3 = typeof gpsSrc3.lng === 'number' ? gpsSrc3.lng : (typeof latestData?.lng === 'number' ? latestData.lng : (typeof latestData?.lon === 'number' ? latestData.lon : (typeof latestData?.longitude === 'number' ? latestData.longitude : undefined)))
+            const gpsSpeed3 = typeof gpsSrc3.speed === 'number' ? gpsSrc3.speed : (typeof latestData?.speed === 'number' ? latestData.speed : undefined)
             console.log(`[BatteryDashboard] 设备 ${deviceId} 最新数据:`, latestData)
             
             return {
@@ -660,6 +675,7 @@ export function BatteryMonitorDashboard() {
               chargingStatus: (typeof latestData.chargingStatus === 'string' ? 
                 latestData.chargingStatus : 'idle') as BatteryData['chargingStatus'],
               alerts: Array.isArray(latestData.alerts) ? latestData.alerts : [],
+              gps: (gpsLat3 != null && gpsLng3 != null) ? { lat: gpsLat3, lng: gpsLng3, speed: gpsSpeed3 } : undefined,
               lastProbe: 'From Database'
             }
           } catch (e) {
@@ -674,8 +690,7 @@ export function BatteryMonitorDashboard() {
         
         if (validDevices.length > 0) {
           setBatteryData(validDevices)
-          console.log(`[BatteryDashboard] 成功初始化 ${validDevices.length} 个设备`)
-          
+
           // 如果没有选中设备，选择第一个
           if (!selectedVehicle && validDevices.length > 0) {
             setSelectedVehicle(validDevices[0].vehicleId)
