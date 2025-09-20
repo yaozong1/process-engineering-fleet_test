@@ -66,7 +66,10 @@ export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelec
   const [mapKey] = useState(()=> 'map_'+Math.random().toString(36).slice(2))
 
   return (
-    <div className="w-full h-96 rounded-lg overflow-hidden">
+    <div
+      className="rounded-lg overflow-hidden mx-[5px] mb-[25px]"
+      style={{ aspectRatio: '21 / 9', width: 'calc(100% - 10px)' }}
+    >
       <MapContainer
         key={mapKey}
         center={defaultCenter}
