@@ -223,7 +223,16 @@ export function GpsTrackingDashboard() {
           <CardHeader>
             <CardTitle>Vehicle Status</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent 
+            className="cursor-pointer min-h-[100px]"
+            onClick={(e) => {
+              // 点击空白处取消选中
+              if (e.target === e.currentTarget) {
+                setSelectedVehicle(null)
+              }
+            }}
+            title={selectedVehicle ? "点击空白处取消选中车辆" : ""}
+          >
             <div className="space-y-4">
               {vehicles.map((vehicle) => (
                 <div
@@ -233,7 +242,10 @@ export function GpsTrackingDashboard() {
                       ? "border-blue-500 bg-blue-50"
                       : "border-gray-200 hover:border-gray-300"
                   }`}
-                  onClick={() => setSelectedVehicle(vehicle)}
+                  onClick={(e) => {
+                    e.stopPropagation() // 防止冒泡到父容器
+                    setSelectedVehicle(vehicle)
+                  }}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -263,6 +275,19 @@ export function GpsTrackingDashboard() {
                   </div>
                 </div>
               ))}
+              
+              {/* 额外的空白区域，便于点击取消选中 */}
+              {selectedVehicle && (
+                <div 
+                  className="h-16 flex items-center justify-center text-gray-400 text-sm italic"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedVehicle(null)
+                  }}
+                >
+                  点击此处取消选中车辆
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
