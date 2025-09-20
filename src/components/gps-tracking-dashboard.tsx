@@ -7,10 +7,20 @@ import { Button } from "@/components/ui/button"
 import { MapPin, Navigation, Clock, Zap, RefreshCw, AlertCircle, Truck } from "lucide-react"
 import dynamic from "next/dynamic"
 
+// 可配置的地图高度（视口百分比），默认 80vh
+const MAP_HEIGHT_VH = Number(process.env.NEXT_PUBLIC_MAP_HEIGHT_VH || '80') || 80
+
 // Dynamically import map component to avoid SSR issues
 const MapComponent = dynamic(() => import("./map-component"), {
   ssr: false,
-  loading: () => <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center">Loading map...</div>
+  loading: () => (
+    <div
+      className="w-full bg-gray-100 rounded-lg flex items-center justify-center"
+      style={{ minHeight: 400, height: `${MAP_HEIGHT_VH}vh` }}
+    >
+      Loading map...
+    </div>
+  )
 })
 
 interface Vehicle {
@@ -275,7 +285,7 @@ export function GpsTrackingDashboard() {
               Real-time Vehicle Tracking
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {initialCenter ? (
               <MapComponent
                 vehicles={mapVehicles}
@@ -285,7 +295,10 @@ export function GpsTrackingDashboard() {
                 initialZoom={initialZoom ?? undefined}
               />
             ) : (
-              <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center text-sm text-gray-500">
+              <div
+                className="w-full bg-gray-100 rounded-lg flex items-center justify-center text-sm text-gray-500"
+                style={{ minHeight: 400, height: `${MAP_HEIGHT_VH}vh` }}
+              >
                 Waiting for device location...
               </div>
             )}
