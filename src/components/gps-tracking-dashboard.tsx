@@ -50,7 +50,9 @@ export function GpsTrackingDashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [isLiveTracking, setIsLiveTracking] = useState(true)
   const [initialCenter, setInitialCenter] = useState<[number, number] | null>(null)
+  const [initialZoom, setInitialZoom] = useState<number | null>(null)
   const POLL_INTERVAL_MS = Math.max(3000, Number(process.env.NEXT_PUBLIC_GPS_POLL_INTERVAL_MS) || 5000)
+  const LOCAL_FIRST = (process.env.NEXT_PUBLIC_GPS_LOCAL_FIRST ?? '1') !== '0'
 
   const kphToMph = (kph?: number) => (typeof kph === 'number' && Number.isFinite(kph)) ? Math.round(kph * 0.621371) : 0
   const timeAgo = (ts: number) => {
@@ -106,6 +108,8 @@ export function GpsTrackingDashboard() {
         }
       }).filter(v => v.id)
       setVehicles(mapped)
+  // 持久化车辆数据以便切页/刷新后即时恢复
+  try { localStorage.setItem('gps:lastVehicles', JSON.stringify(mapped)) } catch {}
       // 移除自动选择车辆逻辑，避免轮询时触发地图居中
       // if (!selectedVehicle && mapped.length) setSelectedVehicle(mapped.find(v => v.status !== 'offline') || mapped[0])
     } catch (e) {
@@ -114,12 +118,66 @@ export function GpsTrackingDashboard() {
   }
 
   useEffect(() => {
-    loadOnce()
+    // 本地优先模式：挂载时不立即拉远端，先用本地缓存渲染
+    if (!LOCAL_FIRST) {
+      loadOnce()
+    }
     if (!isLiveTracking) return
     const timer = setInterval(loadOnce, POLL_INTERVAL_MS)
     return () => clearInterval(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLiveTracking])
+
+  // 页面初次加载时尝试从本地缓存恢复地图中心
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (initialCenter) return
+    try {
+      const raw = localStorage.getItem('gps:lastView')
+      if (raw) {
+        const saved = JSON.parse(raw)
+        const c = Array.isArray(saved?.center) ? saved.center : null
+        const z = typeof saved?.zoom === 'number' ? saved.zoom : null
+        if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+          setInitialCenter([c[0], c[1]])
+        }
+        if (z != null && Number.isFinite(z)) {
+          setInitialZoom(z)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [initialCenter])
+
+  // 页面初次加载时优先从本地缓存恢复车辆列表
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = localStorage.getItem('gps:lastVehicles')
+      if (raw) {
+        const cached: Vehicle[] = JSON.parse(raw)
+        if (Array.isArray(cached) && cached.length) {
+          setVehicles(cached)
+          // 若尚未有初始中心，则用缓存车辆的首个有效点
+          if (!initialCenter) {
+            const v = cached.find(v => Number.isFinite(v.lat) && Number.isFinite(v.lng))
+            if (v) setInitialCenter([v.lat, v.lng])
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  // 一旦确定了初始中心，也将其持久化，确保下一次进入无需等待
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!initialCenter) return
+    try {
+      const existing = localStorage.getItem('gps:lastView')
+      const currentZoom = initialZoom ?? 11
+      // 无论是否已有，都刷新一次，保证中心最新
+      localStorage.setItem('gps:lastView', JSON.stringify({ center: initialCenter, zoom: currentZoom }))
+    } catch { /* ignore */ }
+  }, [initialCenter, initialZoom])
 
   const activeVehicles = vehicles.filter(v => v.status === "active").length
   const totalVehicles = vehicles.length
@@ -224,6 +282,7 @@ export function GpsTrackingDashboard() {
                 selectedVehicle={selectedVehicle}
                 onVehicleSelect={setSelectedVehicle}
                 initialCenter={initialCenter}
+                initialZoom={initialZoom ?? undefined}
               />
             ) : (
               <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center text-sm text-gray-500">
