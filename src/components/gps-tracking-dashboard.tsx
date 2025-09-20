@@ -49,6 +49,7 @@ export function GpsTrackingDashboard() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [isLiveTracking, setIsLiveTracking] = useState(true)
+  const [initialCenter, setInitialCenter] = useState<[number, number] | null>(null)
   const POLL_INTERVAL_MS = Math.max(3000, Number(process.env.NEXT_PUBLIC_GPS_POLL_INTERVAL_MS) || 5000)
 
   const kphToMph = (kph?: number) => (typeof kph === 'number' && Number.isFinite(kph)) ? Math.round(kph * 0.621371) : 0
@@ -132,6 +133,13 @@ export function GpsTrackingDashboard() {
     vehicles.map(v => `${v.id}:${v.lat.toFixed(5)}:${v.lng.toFixed(5)}:${v.status}`).join('|')
   ])
 
+  // 首次拿到有效坐标后，设定地图初始中心，避免闪到默认位置
+  useEffect(() => {
+    if (!initialCenter && mapVehicles.length > 0) {
+      setInitialCenter([mapVehicles[0].lat, mapVehicles[0].lng])
+    }
+  }, [initialCenter, mapVehicles])
+
   return (
     <div className="space-y-6">
       {/* Real-time Stats */}
@@ -210,11 +218,18 @@ export function GpsTrackingDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <MapComponent
-              vehicles={mapVehicles}
-              selectedVehicle={selectedVehicle}
-              onVehicleSelect={setSelectedVehicle}
-            />
+            {initialCenter ? (
+              <MapComponent
+                vehicles={mapVehicles}
+                selectedVehicle={selectedVehicle}
+                onVehicleSelect={setSelectedVehicle}
+                initialCenter={initialCenter}
+              />
+            ) : (
+              <div className="w-full h-96 bg-gray-100 rounded-lg flex items-center justify-center text-sm text-gray-500">
+                Waiting for device location...
+              </div>
+            )}
           </CardContent>
         </Card>
 
