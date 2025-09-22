@@ -21,6 +21,8 @@ interface MapComponentProps {
   vehicles: Vehicle[]
   selectedVehicle: Vehicle | null
   onVehicleSelect: (vehicle: Vehicle) => void
+  initialCenter?: [number, number]
+  initialZoom?: number
 }
 
 // Red circle icons (normal & selected)
@@ -61,8 +63,9 @@ function MapController({ selectedVehicle, vehicles }: { selectedVehicle: Vehicle
   return null
 }
 
-export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelect }: MapComponentProps) {
-  const defaultCenter: [number, number] = [40.7128, -74.0060]
+export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelect, initialCenter, initialZoom }: MapComponentProps) {
+  const defaultCenter: [number, number] = initialCenter || [40.7128, -74.0060]
+  const defaultZoom = initialZoom || 11
   const [mapKey] = useState(()=> 'map_'+Math.random().toString(36).slice(2))
 
   return (
@@ -73,7 +76,7 @@ export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelec
       <MapContainer
         key={mapKey}
         center={defaultCenter}
-        zoom={11}
+        zoom={defaultZoom}
         style={{ height: "100%", width: "100%" }}
         className="z-0"
       >

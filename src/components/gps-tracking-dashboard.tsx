@@ -13,6 +13,7 @@ type MapProps = {
   selectedVehicle: Vehicle | null
   onVehicleSelect: (vehicle: Vehicle | null) => void
   initialCenter: [number, number]
+  initialZoom?: number
 }
 
 const MapComponent = dynamic<MapProps>(() => import("./map-component"), { ssr: false })
@@ -74,8 +75,8 @@ export function GpsTrackingDashboard() {
   
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [isLiveTracking, setIsLiveTracking] = useState(true)
-  const [initialMapCenter, setInitialMapCenter] = useState<[number, number] | null>(null)
-  const [mapReady, setMapReady] = useState(false)
+  const [initialCenter, setInitialCenter] = useState<[number, number] | null>(null)
+  const [initialZoom, setInitialZoom] = useState<number | null>(null)
 
   const kphToMph = (kph?: number) => (typeof kph === "number" && Number.isFinite(kph) ? Math.round(kph * 0.621371) : 0)
   
@@ -139,19 +140,45 @@ export function GpsTrackingDashboard() {
     }
   }, [startPolling, stopPolling])
 
-  // 设置地图初始中心点
+  // 页面初次加载时尝试从本地缓存恢复地图中心
   useEffect(() => {
-    if (!mapReady && vehicles.length > 0) {
-      const firstValid = vehicles.find((v) => 
-        Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0)
-      )
-      if (firstValid) {
-        setInitialMapCenter([firstValid.lat, firstValid.lng])
-        setMapReady(true)
-        console.log(`[GPS] 设置地图中心: ${firstValid.lat}, ${firstValid.lng}`)
+    if (typeof window === 'undefined') return
+    if (initialCenter) return
+    try {
+      const raw = localStorage.getItem('gps:lastView')
+      if (raw) {
+        const saved = JSON.parse(raw)
+        const c = Array.isArray(saved?.center) ? saved.center : null
+        const z = typeof saved?.zoom === 'number' ? saved.zoom : null
+        if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+          setInitialCenter([c[0], c[1]])
+        }
+        if (z != null && Number.isFinite(z)) {
+          setInitialZoom(z)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [initialCenter])
+
+  // 从vehicles数据中恢复地图中心（如果没有本地存储的视图）
+  useEffect(() => {
+    if (!initialCenter && vehicles.length) {
+      const validVehicle = vehicles.find(v => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0))
+      if (validVehicle) {
+        setInitialCenter([validVehicle.lat, validVehicle.lng])
       }
     }
-  }, [vehicles, mapReady])
+  }, [initialCenter, vehicles])
+
+  // 一旦确定了初始中心，也将其持久化，确保下一次进入无需等待
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!initialCenter) return
+    try {
+      const currentZoom = initialZoom ?? 11
+      localStorage.setItem('gps:lastView', JSON.stringify({ center: initialCenter, zoom: currentZoom }))
+    } catch { /* ignore */ }
+  }, [initialCenter, initialZoom])
 
   // 控制实时跟踪
   useEffect(() => {
@@ -166,9 +193,14 @@ export function GpsTrackingDashboard() {
   const totalVehicles = vehicles.length
   const averageBattery = vehicles.length ? Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / vehicles.length) : 0
 
+  // 允许红点位置更新，但使用深度比较避免不必要的地图重新渲染
   const mapVehicles = useMemo(() => {
-    return vehicles.filter((v) => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0))
-  }, [vehicles])
+    const filtered = vehicles.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng) && !(v.lat === 0 && v.lng === 0))
+    return filtered
+  }, [
+    vehicles.length,
+    vehicles.map(v => `${v.id}:${v.lat.toFixed(5)}:${v.lng.toFixed(5)}:${v.status}`).join('|')
+  ])
 
   const handleRefresh = async () => {
     console.log('[GPS] 手动刷新数据')
@@ -362,12 +394,13 @@ export function GpsTrackingDashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-[500px] w-full rounded-lg overflow-hidden">
-              {mapReady && initialMapCenter ? (
+              {initialCenter ? (
                 <MapComponent
                   vehicles={mapVehicles}
                   selectedVehicle={selectedVehicle}
                   onVehicleSelect={setSelectedVehicle}
-                  initialCenter={initialMapCenter}
+                  initialCenter={initialCenter}
+                  initialZoom={initialZoom ?? undefined}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full bg-gray-100">
