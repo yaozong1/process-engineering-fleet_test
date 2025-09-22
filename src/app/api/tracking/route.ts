@@ -38,10 +38,58 @@ function extractGps(o: any): { lat?: number; lng?: number; speed?: number; headi
 // Deprecated: previously accepted raw tracking writes. Now no-op to avoid duplication.
 export async function POST(req: NextRequest) {
   try {
-    // Accept but do not store; advise client to use /api/telemetry
-    return NextResponse.json({ ok: true, deprecated: true, message: 'Use /api/telemetry for GPS inside telemetry. Tracking derives from telemetry history.' })
-  } catch {
-    return NextResponse.json({ ok: false, deprecated: true }, { status: 400 })
+    const body = await req.json();
+    const { device, ts, lat, lng } = body || {};
+    if (
+      typeof device !== 'string' ||
+      typeof lat !== 'number' ||
+      typeof lng !== 'number'
+    ) {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+    }
+    const redis = getRedis() as any;
+    const key = `telemetry:${device}`;
+    // Try in-place merge into latest entry to avoid creating a new head with stale SOC
+    let head: any = null
+    try {
+      const headRaw = await redis.lindex(key, 0)
+      if (headRaw) head = typeof headRaw === 'string' ? JSON.parse(headRaw) : headRaw
+    } catch {}
+
+    const gpsPatch = {
+      lat,
+      lng,
+      speed: typeof body.speed === 'number' ? body.speed : undefined,
+      heading: typeof body.heading === 'number' ? body.heading : undefined,
+      altitude: typeof body.altitude === 'number' ? body.altitude : undefined
+    }
+
+    if (head && typeof head === 'object') {
+      const merged = { ...head }
+      const oldGps = (merged.gps && typeof merged.gps === 'object') ? merged.gps : {}
+      merged.gps = { ...oldGps, ...gpsPatch }
+      const tsNum = typeof ts === 'number' ? ts : Date.now()
+      // Keep the newer timestamp
+      merged.ts = typeof merged.ts === 'number' ? Math.max(merged.ts, tsNum) : tsNum
+      try {
+        await redis.lset(key, 0, JSON.stringify(merged))
+        return NextResponse.json({ ok: true, updatedHead: true })
+      } catch (e) {
+        // Fallback to push if LSET unsupported
+      }
+    }
+
+    // No head exists -> push a new minimal telemetry (no SOC to avoid overwriting with stale numbers)
+    const telemetryItem = {
+      device,
+      ts: typeof ts === 'number' ? ts : Date.now(),
+      gps: gpsPatch
+    }
+    await redis.lpush(key, JSON.stringify(telemetryItem))
+    await redis.ltrim(key, 0, 200 - 1)
+    return NextResponse.json({ ok: true, createdHead: true })
+  } catch (e) {
+    return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   }
 }
 

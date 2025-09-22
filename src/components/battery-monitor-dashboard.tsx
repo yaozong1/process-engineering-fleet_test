@@ -105,7 +105,19 @@ export function BatteryMonitorDashboard() {
   const MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
   const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
   const ENABLE_FRONTEND_MQTT = (process.env.NEXT_PUBLIC_ENABLE_FRONTEND_MQTT || 'false').toLowerCase() === 'true'
-  const POLL_INTERVAL_MS = Math.max(1000, Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS) || 30000)
+  const POLL_INTERVAL_MS = Math.max(5000, Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS) || 5000)
+
+  // 统一从 API 读取“最新一条”（后端保证 index 0 为最新）
+  const fetchLatestFromApi = async (deviceId: string): Promise<any | null> => {
+    try {
+      const res = await fetch(`/api/telemetry?device=${encodeURIComponent(deviceId)}&latest=1`, { cache: 'no-store' })
+      if (!res.ok) return null
+      const json = await res.json()
+      return json?.latest ?? (Array.isArray(json?.data) && json.data.length ? json.data[0] : null)
+    } catch {
+      return null
+    }
+  }
 
   // 检查数据是否为重复数据（防止相同数据连续写入）
   const isDuplicateData = (deviceId: string, soc: number, voltage: number, temperature: number): boolean => {
@@ -394,7 +406,8 @@ export function BatteryMonitorDashboard() {
                 return null
               }
               
-              const latestData = deviceJson.data[deviceJson.data.length - 1]
+              const fetchedLatest = await fetchLatestFromApi(deviceId)
+              const latestData = fetchedLatest ?? deviceJson.data[0]
               const gpsSrc = latestData?.gps || {}
               const gpsLat = typeof gpsSrc.lat === 'number' ? gpsSrc.lat : (typeof latestData?.lat === 'number' ? latestData.lat : (typeof latestData?.latitude === 'number' ? latestData.latitude : undefined))
               const gpsLng = typeof gpsSrc.lng === 'number' ? gpsSrc.lng : (typeof latestData?.lng === 'number' ? latestData.lng : (typeof latestData?.lon === 'number' ? latestData.lon : (typeof latestData?.longitude === 'number' ? latestData.longitude : undefined)))
@@ -536,7 +549,8 @@ export function BatteryMonitorDashboard() {
                   return null
                 }
                 
-                const data = deviceJson.data[deviceJson.data.length - 1] // 使用最新数据（最后一条）
+                const fetchedLatest = await fetchLatestFromApi(deviceId)
+                const data = fetchedLatest ?? deviceJson.data[0]
                 const gpsSrc2 = data?.gps || {}
                 const gpsLat2 = typeof gpsSrc2.lat === 'number' ? gpsSrc2.lat : (typeof data?.lat === 'number' ? data.lat : (typeof data?.latitude === 'number' ? data.latitude : undefined))
                 const gpsLng2 = typeof gpsSrc2.lng === 'number' ? gpsSrc2.lng : (typeof data?.lng === 'number' ? data.lng : (typeof data?.lon === 'number' ? data.lon : (typeof data?.longitude === 'number' ? data.longitude : undefined)))
@@ -644,20 +658,12 @@ export function BatteryMonitorDashboard() {
             // 从数据库获取设备历史数据 - 首次加载强制从云端获取
             const history = await getDeviceHistory(deviceId, true)
             
-            // 获取最新状态数据
-            const res = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
-            if (!res.ok) {
-              console.warn(`[BatteryDashboard] 设备 ${deviceId} 无最新数据:`, res.status)
+            // 获取最新状态数据（统一 latest=1）
+            const latestData = await fetchLatestFromApi(deviceId)
+            if (!latestData) {
+              console.warn(`[BatteryDashboard] 设备 ${deviceId} 无最新数据`)
               return null
             }
-            
-            const json = await res.json()
-            if (!Array.isArray(json.data) || json.data.length === 0) {
-              console.warn(`[BatteryDashboard] 设备 ${deviceId} 数据为空`)
-              return null
-            }
-            
-            const latestData = json.data[json.data.length - 1]
             const gpsSrc3 = latestData?.gps || {}
             const gpsLat3 = typeof gpsSrc3.lat === 'number' ? gpsSrc3.lat : (typeof latestData?.lat === 'number' ? latestData.lat : (typeof latestData?.latitude === 'number' ? latestData.latitude : undefined))
             const gpsLng3 = typeof gpsSrc3.lng === 'number' ? gpsSrc3.lng : (typeof latestData?.lng === 'number' ? latestData.lng : (typeof latestData?.lon === 'number' ? latestData.lon : (typeof latestData?.longitude === 'number' ? latestData.longitude : undefined)))
@@ -938,10 +944,8 @@ export function BatteryMonitorDashboard() {
 
         // 拉取各设备最新数据
         const latestPromises = devices.map(async (deviceId) => {
-          const res = await fetch(`/api/telemetry?device=${deviceId}&limit=1`, { cache: 'no-store' })
-          if (!res.ok) return null
-          const json = await res.json()
-          const latest = Array.isArray(json.data) && json.data.length ? json.data[json.data.length - 1] : null
+          const latest = await fetchLatestFromApi(deviceId)
+          if (!latest) return null
           return { deviceId, latest }
         })
         const latestList = (await Promise.all(latestPromises)).filter(Boolean) as { deviceId: string; latest: any }[]
@@ -1067,7 +1071,7 @@ export function BatteryMonitorDashboard() {
         setHistoryData([...serverHistory])
         
         // 更新设备状态
-  const latest = json.data[json.data.length - 1]
+        const latest = await fetchLatestFromApi(selectedVehicle)
         if (latest) {
           setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
             ...b,

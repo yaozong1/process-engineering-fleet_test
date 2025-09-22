@@ -172,6 +172,51 @@ export async function GET(req: NextRequest) {
               break
             }
           }
+
+          // Legacy compatibility (read-only): if still missing GPS, check old caches
+          const stillNoGps = !(item && item.gps && typeof item.gps.lat === 'number' && typeof item.gps.lng === 'number')
+          if (stillNoGps) {
+            let cached: any = null
+            try {
+              const lastKey = `gps:last:${device}`
+              const cachedLast: any = await (redis as any).get(lastKey)
+              if (cachedLast) {
+                cached = typeof cachedLast === 'string' ? JSON.parse(cachedLast) : cachedLast
+              }
+            } catch { /* ignore */ }
+            if (!cached) {
+              try {
+                const tracking = await (redis as any).get(`tracking:${device}:latest`)
+                if (tracking) cached = typeof tracking === 'string' ? JSON.parse(tracking) : tracking
+              } catch { /* ignore */ }
+            }
+            const cLat = cached?.lat ?? cached?.gps?.lat
+            const cLng = cached?.lng ?? cached?.gps?.lng ?? cached?.lon
+            if (typeof cLat === 'number' && typeof cLng === 'number') {
+              const mergedGps: GPSInfo = {
+                lat: cLat,
+                lng: cLng,
+                speed: typeof cached?.speed === 'number' ? cached.speed : undefined,
+                heading: typeof cached?.heading === 'number' ? cached.heading : undefined,
+                altitude: typeof cached?.altitude === 'number' ? cached.altitude : undefined,
+                accuracy: typeof cached?.accuracy === 'number' ? cached.accuracy : undefined,
+              }
+              if (!item) {
+                item = {
+                  device,
+                  ts: typeof cached?.ts === 'number' ? cached.ts : Date.now(),
+                  soc: 0,
+                  gps: mergedGps,
+                } as CompleteTelemetry
+              } else {
+                item.gps = mergedGps
+                if (typeof cached?.ts === 'number' && (!item.ts || cached.ts > item.ts)) {
+                  item.ts = cached.ts
+                }
+                ;(item as any).gpsFromLegacy = true
+              }
+            }
+          }
         }
       } catch { /* soft-fail */ }
 
@@ -302,7 +347,7 @@ export async function POST(req: NextRequest) {
     })()
     const item: CompleteTelemetry = {
       device,
-      ts: body.ts ? Number(body.ts) : Date.now(),
+      ts: (typeof body.ts === 'number' && Number.isFinite(body.ts)) ? Number(body.ts) : Date.now(),
       soc: socNum,
       voltage: typeof body.voltage === 'number' ? body.voltage : undefined,
       temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
@@ -315,7 +360,7 @@ export async function POST(req: NextRequest) {
     }
     const redis = getRedis()
     const key = `telemetry:${device}`
-    // 1) 服务器端去重：对比最近一条（电池与GPS均未变化且30秒内才跳过）
+    // 1) 服务器端去重与乱序丢弃
     try {
       const lastRaw: any = await (redis as any).lindex(key, 0)
       if (lastRaw) {
@@ -326,6 +371,36 @@ export async function POST(req: NextRequest) {
           last = lastRaw
         }
         if (last && typeof last.soc === 'number') {
+          // 1.0) 若新上报 ts 不晚于当前最新，则不再新写入；尝试就地合并补全
+          if (typeof last.ts === 'number' && typeof item.ts === 'number' && item.ts <= last.ts) {
+            try {
+              const merged: any = { ...last }
+              // 仅补全缺失字段，避免用旧值覆盖新值
+              if (merged.voltage == null && typeof item.voltage === 'number') merged.voltage = item.voltage
+              if (merged.temperature == null && typeof item.temperature === 'number') merged.temperature = item.temperature
+              if (Array.isArray(item.alerts) && (!Array.isArray(merged.alerts) || merged.alerts.length === 0)) merged.alerts = item.alerts
+              if (typeof item.chargingStatus === 'string' && typeof merged.chargingStatus !== 'string') merged.chargingStatus = item.chargingStatus
+              // GPS 合并（以 item 优先丰补）
+              const mg = (merged.gps && typeof merged.gps === 'object') ? merged.gps : {}
+              const ig = (item.gps && typeof item.gps === 'object') ? item.gps : undefined
+              if (ig) {
+                merged.gps = {
+                  lat: typeof ig.lat === 'number' ? ig.lat : mg.lat,
+                  lng: typeof ig.lng === 'number' ? ig.lng : mg.lng,
+                  speed: typeof ig.speed === 'number' ? ig.speed : mg.speed,
+                  heading: typeof ig.heading === 'number' ? ig.heading : mg.heading,
+                  altitude: typeof ig.altitude === 'number' ? ig.altitude : mg.altitude,
+                  accuracy: typeof ig.accuracy === 'number' ? ig.accuracy : mg.accuracy,
+                }
+              }
+              await (redis as any).lset(key, 0, JSON.stringify(merged))
+              return NextResponse.json({ ok: true, key, mergedIntoHead: true })
+            } catch { /* fallback to proceed */ }
+          }
+          // 1.1) 丢弃乱序：新上报 ts 明显早于当前最新（>5s）
+          if (typeof last.ts === 'number' && typeof item.ts === 'number' && item.ts < (last.ts - 5000)) {
+            return NextResponse.json({ ok: true, key, skipped: true, reason: 'out_of_order_older_than_head' })
+          }
           const sameSoc = Math.abs((last.soc ?? NaN) - item.soc) < 0.0001
           const sameVolt = Math.abs((last.voltage ?? NaN) - (item.voltage ?? NaN)) < 0.0001
           const sameTemp = Math.abs((last.temperature ?? NaN) - (item.temperature ?? NaN)) < 0.0001
