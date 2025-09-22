@@ -353,6 +353,13 @@ export function BatteryMonitorDashboard() {
     }
   }
 
+  // batteryData 每次变化都刷新一次会话缓存，避免页面切换后读取到旧值
+  useEffect(() => {
+    if (batteryData && batteryData.length > 0) {
+      saveToCache(batteryData)
+    }
+  }, [batteryData])
+
   // 同步云端数据：强制从云端获取最新数据（手动触发或定期同步）
   const syncCloudData = async (isManualSync: boolean = false) => {
     setIsLoading(true)
