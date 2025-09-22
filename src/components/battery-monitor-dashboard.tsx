@@ -80,6 +80,8 @@ function getProgressColor(level: number): string {
 }
 
 export function BatteryMonitorDashboard() {
+  console.log('[BatteryDashboard] 组件开始渲染')
+  
   const [batteryData, setBatteryData] = useState<BatteryData[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>("")
   const [historyData, setHistoryData] = useState<BatteryHistoryPoint[]>([])
@@ -88,6 +90,8 @@ export function BatteryMonitorDashboard() {
   const mqttRef = useRef<MqttClient | null>(null)
   const [mqttStatus, setMqttStatus] = useState<'idle'|'connecting'|'connected'|'error'>('idle')
   const lastTelemetryRef = useRef<number | null>(null)
+  
+  console.log('[BatteryDashboard] 状态初始化完成')
   
   // 防重复数据机制：记录每个设备最近的数据，避免重复写入
   const lastDataRef = useRef<Map<string, {
@@ -106,6 +110,12 @@ export function BatteryMonitorDashboard() {
   const MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
   const ENABLE_FRONTEND_MQTT = (process.env.NEXT_PUBLIC_ENABLE_FRONTEND_MQTT || 'false').toLowerCase() === 'true'
   const POLL_INTERVAL_MS = Math.max(5000, Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS) || 5000)
+
+  console.log('[BatteryDashboard] 环境配置:', {
+    MQTT_URL: MQTT_URL ? '已配置' : '未配置',
+    ENABLE_FRONTEND_MQTT,
+    POLL_INTERVAL_MS
+  })
 
   // 统一从 API 读取“最新一条”（后端保证 index 0 为最新）
   const fetchLatestFromApi = async (deviceId: string): Promise<any | null> => {
@@ -279,7 +289,24 @@ export function BatteryMonitorDashboard() {
       }
     }
     
-    currentHistory.push(point)
+    // 检查是否需要添加新点（数据是否发生了有意义的变化）
+    if (currentHistory.length > 0) {
+      const lastPoint = currentHistory[currentHistory.length - 1]
+      const isDifferent = 
+        Math.abs(lastPoint.level - point.level) >= 0.1 ||  // 电量变化≥0.1%
+        Math.abs(lastPoint.voltage - point.voltage) >= 0.01 ||  // 电压变化≥0.01V
+        Math.abs(lastPoint.temperature - point.temperature) >= 0.1  // 温度变化≥0.1℃
+      
+      if (!isDifferent) {
+        console.log(`[BatteryDashboard] 设备 ${deviceId} 数据无明显变化，跳过添加历史点`)
+        return
+      } else {
+        console.log(`[BatteryDashboard] 设备 ${deviceId} 数据有变化，添加新历史点`)
+      }
+    }
+    
+    // 创建新数组副本并添加新点，避免修改不可扩展的数组
+    currentHistory = [...currentHistory, point]
     
     // 限制最大条数
     if (currentHistory.length > MAX_HISTORY) {
@@ -950,16 +977,24 @@ export function BatteryMonitorDashboard() {
 
   // 轮询后端API以保持UI最新（禁用前端MQTT时启用）
   useEffect(() => {
-    if (ENABLE_FRONTEND_MQTT) return
+    console.log(`[轮询] MQTT启用状态: ${ENABLE_FRONTEND_MQTT}`)
+    if (ENABLE_FRONTEND_MQTT) {
+      console.log('[轮询] MQTT已启用，跳过轮询')
+      return
+    }
+    
+    console.log(`[轮询] 启动轮询，间隔: ${POLL_INTERVAL_MS}ms`)
     let stopped = false
     const interval = setInterval(async () => {
       if (stopped) return
+      console.log('[轮询] 执行中...')
       try {
         // 拉取设备列表
         const listRes = await fetch('/api/telemetry?list=1', { cache: 'no-store' })
         if (!listRes.ok) return
         const listJson = await listRes.json()
         const devices: string[] = Array.isArray(listJson.devices) ? listJson.devices : []
+        console.log('[轮询] 设备列表:', devices)
         if (devices.length === 0) return
 
         // 拉取各设备最新数据
@@ -969,19 +1004,25 @@ export function BatteryMonitorDashboard() {
           return { deviceId, latest }
         })
         const latestList = (await Promise.all(latestPromises)).filter(Boolean) as { deviceId: string; latest: any }[]
+        console.log('[轮询] 获取数据成功，设备数:', latestList.length)
 
-        // 更新电池概览
+        // 更新电池概览并添加历史数据
         setBatteryData(prev => {
           const nextMap = new Map(prev.map(b => [b.vehicleId, b]))
           for (const item of latestList) {
             const latest = item.latest
             if (!latest) continue
             const existing = nextMap.get(item.deviceId)
+            
+            const soc = typeof latest.soc === 'number' ? latest.soc : existing?.currentLevel ?? 0
+            const voltage = typeof latest.voltage === 'number' ? latest.voltage : existing?.voltage ?? 0
+            const temperature = typeof latest.temperature === 'number' ? latest.temperature : existing?.temperature ?? 0
+            
             const next = {
               vehicleId: item.deviceId,
-              currentLevel: typeof latest.soc === 'number' ? latest.soc : existing?.currentLevel ?? 0,
-              voltage: typeof latest.voltage === 'number' ? latest.voltage : existing?.voltage ?? 0,
-              temperature: typeof latest.temperature === 'number' ? latest.temperature : existing?.temperature ?? 0,
+              currentLevel: soc,
+              voltage: voltage,
+              temperature: temperature,
               health: typeof latest.health === 'number' ? latest.health : existing?.health ?? 95,
               cycleCount: typeof latest.cycleCount === 'number' ? latest.cycleCount : existing?.cycleCount ?? 0,
               estimatedRange: typeof latest.estimatedRangeKm === 'number' ? latest.estimatedRangeKm : existing?.estimatedRange ?? 0,
@@ -990,6 +1031,46 @@ export function BatteryMonitorDashboard() {
               alerts: Array.isArray(latest.alerts) ? latest.alerts : existing?.alerts ?? []
             } as BatteryData
             nextMap.set(item.deviceId, next)
+            
+            // 检查数据是否真的发生了变化
+            const hasDataChanged = existing ? (
+              Math.abs(existing.currentLevel - soc) > 0.1 ||
+              Math.abs(existing.voltage - voltage) > 0.01 ||
+              Math.abs(existing.temperature - temperature) > 0.1
+            ) : true  // 如果是新设备，视为有变化
+            
+            // 只有数据真正变化时才添加历史点
+            if (hasDataChanged) {
+              console.log(`[轮询] 检测到 ${item.deviceId} 数据变化: SOC ${existing?.currentLevel || 'N/A'}% -> ${soc}%`)
+              
+              // 添加历史数据点
+              const historyPoint: BatteryHistoryPoint = {
+                time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                level: soc,
+                voltage: voltage,
+                temperature: temperature
+              }
+              
+              // 直接添加到历史数据中
+              let deviceHistory = deviceHistoryMap.current.get(item.deviceId) || []
+              // 创建新数组副本，避免修改不可扩展的数组
+              deviceHistory = [...deviceHistory, historyPoint]
+              
+              // 保持最多200个点
+              if (deviceHistory.length > 200) {
+                deviceHistory = deviceHistory.slice(-200)
+              }
+              
+              deviceHistoryMap.current.set(item.deviceId, deviceHistory)
+              
+              // 如果是当前选中的设备，更新UI
+              if (item.deviceId === selectedVehicle) {
+                setHistoryData([...deviceHistory])
+                console.log(`[轮询] 更新 ${item.deviceId} 历史图表: SOC=${soc}%, 总点数=${deviceHistory.length}`)
+              }
+            } else {
+              console.log(`[轮询] ${item.deviceId} 数据无变化，跳过图表更新`)
+            }
           }
           return Array.from(nextMap.values())
         })
