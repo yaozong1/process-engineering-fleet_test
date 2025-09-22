@@ -182,9 +182,9 @@ export function BatteryMonitorDashboard() {
   const selectedBattery = batteryData.find(b => b.vehicleId === selectedVehicle)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="flex flex-col h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between p-6 border-b">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">电池监控</h1>
           <p className="text-muted-foreground">实时监控车队电池状态和性能指标</p>
@@ -213,52 +213,83 @@ export function BatteryMonitorDashboard() {
         </div>
       </div>
 
-      {/* Vehicle Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Battery className="w-5 h-5" />
-            车辆选择
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {batteryData.map((battery) => {
-              const isSelected = selectedVehicle === battery.vehicleId
-              const status = getDeviceStatus(battery.vehicleId)
-              
-              return (
-                <button
-                  key={battery.vehicleId}
-                  onClick={() => setSelectedVehicle(battery.vehicleId)}
-                  className={`p-4 rounded-lg border-2 transition-all hover:scale-105 ${
-                    isSelected
-                      ? "border-blue-500 bg-blue-50 shadow-md"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <div className="text-center space-y-2">
-                    <div className="flex items-center justify-center gap-2">
-                      {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
-                      <span className="font-semibold">{battery.vehicleId}</span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className={`text-2xl font-bold ${getBatteryColor(battery.currentLevel)}`}>
-                        {battery.currentLevel}%
-                      </div>
-                      <div className="flex justify-center">
-                        <Badge variant={status.isOnline ? "default" : "secondary"} className="text-xs">
-                          {status.isOnline ? "在线" : "离线"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Main Content - Left-Right Layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Panel - Vehicle List */}
+        <div className="w-80 border-r bg-gray-50/50">
+          <Card className="h-full rounded-none border-0 shadow-none">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Battery className="w-5 h-5" />
+                车辆列表
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <div className="h-[calc(100vh-180px)] overflow-y-auto px-6">
+                <div className="space-y-3">
+                  {batteryData.map((battery) => {
+                    const isSelected = selectedVehicle === battery.vehicleId
+                    const status = getDeviceStatus(battery.vehicleId)
+                    
+                    return (
+                      <button
+                        key={battery.vehicleId}
+                        onClick={() => setSelectedVehicle(battery.vehicleId)}
+                        className={`w-full p-4 rounded-lg border-2 transition-all hover:shadow-md text-left ${
+                          isSelected
+                            ? "border-blue-500 bg-blue-50 shadow-md"
+                            : "border-gray-200 hover:border-gray-300 bg-white"
+                        }`}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
+                              <span className="font-semibold text-lg">{battery.vehicleId}</span>
+                            </div>
+                            <Badge variant={status.isOnline ? "default" : "secondary"} className="text-xs">
+                              {status.isOnline ? "在线" : "离线"}
+                            </Badge>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-600">电量</span>
+                              <span className={`text-xl font-bold ${getBatteryColor(battery.currentLevel)}`}>
+                                {battery.currentLevel}%
+                              </span>
+                            </div>
+                            <Progress value={battery.currentLevel} className="h-2" />
+                            
+                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                              <div>
+                                <span>电压: </span>
+                                <span className="font-medium">{battery.voltage.toFixed(1)}V</span>
+                              </div>
+                              <div>
+                                <span>温度: </span>
+                                <span className="font-medium">{battery.temperature.toFixed(1)}°C</span>
+                              </div>
+                            </div>
+                            
+                            <div className="text-xs text-gray-500">
+                              {battery.chargingStatus === "charging" ? "🔌 充电中" :
+                               battery.chargingStatus === "discharging" ? "🔋 放电中" : "⏸️ 待机"}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Panel - Selected Vehicle Details */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 space-y-6">
 
       {selectedBattery && (
         <>
@@ -432,6 +463,19 @@ export function BatteryMonitorDashboard() {
           </Card>
         </>
       )}
+      
+      {!selectedBattery && (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <Battery className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+            <h3 className="text-xl font-semibold mb-2">选择车辆</h3>
+            <p className="text-gray-600">请从左侧列表选择一个车辆查看详细信息</p>
+          </div>
+        </div>
+      )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
