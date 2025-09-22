@@ -16,39 +16,32 @@ interface TrackingPoint {
 
 const HISTORY_LIMIT = 1000;
 
+// Helper: extract first valid GPS from an item
+const num = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Number(v) : undefined)
+function extractGps(o: any): { lat?: number; lng?: number; speed?: number; heading?: number; altitude?: number } | undefined {
+  if (!o) return undefined
+  const g0 = o.gps
+  const g = (g0 && typeof g0 === 'object') ? (Array.isArray(g0) ? g0[0] : g0) : undefined
+  const lat = num(g?.lat ?? (g as any)?.latitude ?? o.lat ?? (o as any)?.latitude)
+  const lng = num(g?.lng ?? (g as any)?.lon ?? (g as any)?.longitude ?? o.lng ?? (o as any)?.lon ?? (o as any)?.longitude)
+  if (lat == null || lng == null) return undefined
+  return {
+    lat,
+    lng,
+    speed: num(g?.speed),
+    heading: num(g?.heading ?? o.heading),
+    altitude: num(g?.altitude ?? o.altitude)
+  }
+}
+
 // POST: 设备上报轨迹点（topic 统一 fleet/tracking，device 字段区分设备）
+// Deprecated: previously accepted raw tracking writes. Now no-op to avoid duplication.
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { device, ts, lat, lng } = body;
-    if (
-      typeof device !== 'string' ||
-      typeof lat !== 'number' ||
-      typeof lng !== 'number' ||
-      typeof ts !== 'number'
-    ) {
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-    }
-    const point: TrackingPoint = {
-      device,
-      ts,
-      lat,
-      lng,
-      speed: typeof body.speed === 'number' ? body.speed : undefined,
-      heading: typeof body.heading === 'number' ? body.heading : undefined,
-      altitude: typeof body.altitude === 'number' ? body.altitude : undefined,
-      status: typeof body.status === 'string' ? body.status : undefined,
-      extra: typeof body.extra === 'object' ? body.extra : undefined
-    };
-    const redis = getRedis();
-    const LATEST_KEY = `tracking:${device}:latest`;
-    const HISTORY_KEY = `tracking:${device}:history`;
-    await redis.set(LATEST_KEY, JSON.stringify(point));
-    await redis.lpush(HISTORY_KEY, JSON.stringify(point));
-    await redis.ltrim(HISTORY_KEY, 0, HISTORY_LIMIT - 1);
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    return NextResponse.json({ error: 'Bad request' }, { status: 400 });
+    // Accept but do not store; advise client to use /api/telemetry
+    return NextResponse.json({ ok: true, deprecated: true, message: 'Use /api/telemetry for GPS inside telemetry. Tracking derives from telemetry history.' })
+  } catch {
+    return NextResponse.json({ ok: false, deprecated: true }, { status: 400 })
   }
 }
 
@@ -60,19 +53,56 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type') || 'latest';
   try {
     const redis = getRedis();
-    const LATEST_KEY = `tracking:${device}:latest`;
-    const HISTORY_KEY = `tracking:${device}:history`;
+    const TELE_KEY = `telemetry:${device}`
     if (type === 'latest') {
-      const data = await redis.get(LATEST_KEY);
-      if (!data) return NextResponse.json({ point: null });
-      return NextResponse.json({ point: JSON.parse(data as string) });
+      const latestRaw: any = await (redis as any).lindex(TELE_KEY, 0)
+      const toObj = (v: any) => {
+        if (!v) return null
+        if (typeof v === 'object') return v
+        if (typeof v === 'string') { try { return JSON.parse(v) } catch { return null } }
+        return null
+      }
+      const o = toObj(latestRaw)
+      const g = extractGps(o)
+      if (!o || !g) return NextResponse.json({ point: null })
+      const point: TrackingPoint = {
+        device,
+        ts: typeof o.ts === 'number' ? o.ts : Date.now(),
+        lat: g.lat!,
+        lng: g.lng!,
+        speed: g.speed,
+        heading: g.heading,
+        altitude: g.altitude
+      }
+      return NextResponse.json({ point })
     } else if (type === 'history') {
-      const items = await redis.lrange(HISTORY_KEY, 0, limit - 1);
-      const points = items.map((item: string) => JSON.parse(item));
-      return NextResponse.json({ points });
+      const items: any[] = await (redis as any).lrange(TELE_KEY, 0, HISTORY_LIMIT - 1)
+      const toObj = (v: any) => {
+        if (!v) return null
+        if (typeof v === 'object') return v
+        if (typeof v === 'string') { try { return JSON.parse(v) } catch { return null } }
+        return null
+      }
+      const points: TrackingPoint[] = []
+      for (const r of items) {
+        const o = toObj(r)
+        const g = extractGps(o)
+        if (!o || !g) continue
+        points.push({
+          device,
+          ts: typeof o.ts === 'number' ? o.ts : Date.now(),
+          lat: g.lat!,
+          lng: g.lng!,
+          speed: g.speed,
+          heading: g.heading,
+          altitude: g.altitude
+        })
+        if (points.length >= limit) break
+      }
+      return NextResponse.json({ points })
     }
-    return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
   } catch (e) {
-    return NextResponse.json({ error: 'Query failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 }
