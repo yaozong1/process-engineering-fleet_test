@@ -731,20 +731,33 @@ export function BatteryMonitorDashboard() {
       return
     }
 
-    const loadDeviceHistory = async () => {
-      console.log(`[BatteryDashboard] 切换到设备 ${selectedVehicle}，智能加载历史数据...`)
+    // 仅从内存/本地缓存加载，不再单独请求选中设备历史
+    console.log(`[BatteryDashboard] 切换到设备 ${selectedVehicle}，从缓存加载历史数据（不触发单设备请求）...`)
+    const inMem = deviceHistoryMap.current.get(selectedVehicle)
+    if (inMem && inMem.length > 0) {
+      setHistoryData([...inMem])
+      console.log(`[BatteryDashboard] 使用内存缓存历史:`, inMem.length, '条')
+      return
+    }
+    if (typeof window !== 'undefined') {
       try {
-        // 使用智能缓存策略：页面切换时不强制从云端获取
-        const history = await getDeviceHistory(selectedVehicle, false)
-        setHistoryData(history)
-        console.log(`[BatteryDashboard] 成功加载设备 ${selectedVehicle} 的历史数据:`, history.length, '条')
+        const ls = localStorage.getItem(`battery_history_${selectedVehicle}`)
+        if (ls) {
+          const parsed = JSON.parse(ls)
+          if (Array.isArray(parsed)) {
+            setHistoryData(parsed)
+            console.log(`[BatteryDashboard] 使用本地缓存历史:`, parsed.length, '条')
+            // 回灌到内存映射，后续切换更快
+            deviceHistoryMap.current.set(selectedVehicle, parsed)
+            return
+          }
+        }
       } catch (e) {
-        console.error(`[BatteryDashboard] 加载设备 ${selectedVehicle} 历史数据失败:`, e)
-        setHistoryData([])
+        console.warn('[BatteryDashboard] 读取本地历史缓存失败:', e)
       }
     }
-
-    loadDeviceHistory()
+    // 无缓存可用时，保持空数据，不做单设备网络请求
+    setHistoryData([])
   }, [selectedVehicle])
 
   // 移除模拟数据更新 - 现在完全使用数据库驱动
@@ -980,26 +993,7 @@ export function BatteryMonitorDashboard() {
           }
           return Array.from(nextMap.values())
         })
-
-        // 若有选中设备，增量刷新其历史（只拉取 STANDARD_LOAD_LIMIT 条）
-        const selected = selectedVehicle || (devices[0] ?? '')
-        if (selected) {
-          const res = await fetch(`/api/telemetry?device=${selected}&limit=${STANDARD_LOAD_LIMIT}`, { cache: 'no-store' })
-          if (res.ok) {
-            const json = await res.json()
-            if (Array.isArray(json.data)) {
-              const historyPoints: BatteryHistoryPoint[] = json.data.map((d: any) => ({
-                time: new Date(d.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                level: typeof d.soc === 'number' ? d.soc : 0,
-                voltage: typeof d.voltage === 'number' ? d.voltage : 0,
-                temperature: typeof d.temperature === 'number' ? d.temperature : 0
-              }))
-              setHistoryData(historyPoints)
-              deviceHistoryMap.current.set(selected, historyPoints)
-              saveDeviceHistory(selected, historyPoints)
-            }
-          }
-        }
+        // 不再为选中设备单独拉取历史；历史由MQTT/全量同步或缓存维护
       } catch { /* ignore */ }
     }, POLL_INTERVAL_MS)
     return () => { stopped = true; clearInterval(interval) }
@@ -1046,69 +1040,9 @@ export function BatteryMonitorDashboard() {
   // 手动重新加载历史数据（统一处理所有设备）
   const manualReloadHistory = async () => {
     if (!selectedVehicle) return
-    
-    try {
-      console.log(`[BatteryDashboard] 手动重载设备 ${selectedVehicle} 的历史数据`)
-      
-      // 从数据库重新获取历史数据
-      const res = await fetch(`/api/telemetry?device=${selectedVehicle}&limit=${STANDARD_LOAD_LIMIT}&_t=${Date.now()}`)
-      if (!res.ok) {
-        console.warn(`Device ${selectedVehicle} history reload HTTP error:`, res.status)
-        setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
-          ...b,
-          lastProbe: `Reload failed: HTTP ${res.status}`
-        } : b))
-        return
-      }
-      
-      const json = await res.json()
-      if (Array.isArray(json.data) && json.data.length > 0) {
-        // 更新历史数据
-        const serverHistory: BatteryHistoryPoint[] = json.data.map((d: any) => ({
-          time: new Date(d.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          level: typeof d.soc === 'number' ? d.soc : 0,
-          voltage: typeof d.voltage === 'number' ? d.voltage : 0,
-          temperature: typeof d.temperature === 'number' ? d.temperature : 0
-        }))
-        
-        // 保存到本地缓存
-        saveDeviceHistory(selectedVehicle, serverHistory)
-        
-        // 更新图表显示
-        setHistoryData([...serverHistory])
-        
-        // 更新设备状态
-        const latest = await fetchLatestFromApi(selectedVehicle)
-        if (latest) {
-          setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
-            ...b,
-            currentLevel: typeof latest.soc === 'number' ? latest.soc : b.currentLevel,
-            voltage: typeof latest.voltage === 'number' ? latest.voltage : b.voltage,
-            temperature: typeof latest.temperature === 'number' ? latest.temperature : b.temperature,
-            health: typeof latest.health === 'number' ? latest.health : b.health,
-            cycleCount: typeof latest.cycleCount === 'number' ? latest.cycleCount : b.cycleCount,
-            estimatedRange: typeof latest.estimatedRangeKm === 'number' ? latest.estimatedRangeKm : b.estimatedRange,
-            chargingStatus: typeof latest.chargingStatus === 'string' ? latest.chargingStatus as BatteryData['chargingStatus'] : b.chargingStatus,
-            alerts: Array.isArray(latest.alerts) ? latest.alerts : b.alerts,
-            lastProbe: 'Database Reload'
-          } : b))
-        }
-        
-        console.log(`[BatteryDashboard] 成功重载设备 ${selectedVehicle} 的 ${serverHistory.length} 条历史数据`)
-      } else {
-        console.warn(`[BatteryDashboard] Device ${selectedVehicle} reload no data`)
-        setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
-          ...b,
-          lastProbe: 'Reload: No data'
-        } : b))
-      }
-    } catch (e) {
-      console.error(`[BatteryDashboard] Device ${selectedVehicle} manual reload failed:`, e)
-      setBatteryData(prev => prev.map(b => b.vehicleId === selectedVehicle ? {
-        ...b,
-        lastProbe: `Reload error: ${e instanceof Error ? e.message : 'Unknown error'}`
-      } : b))
-    }
+    // 改为触发全量同步，避免单独请求选中设备
+    console.log('[BatteryDashboard] 手动重载历史 -> 触发全量云端同步')
+    await syncCloudData(true)
   }
 
   // 将reload函数挂载到window对象，方便调试
