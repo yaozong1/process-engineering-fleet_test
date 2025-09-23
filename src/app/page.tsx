@@ -210,6 +210,7 @@ export default function FleetManagerPage() {
         const result = await response.json()
         if (result.success && result.data) {
           // 转换数据格式为ChargingStation格式
+          // 新的API返回的数据结构与telemetry一致
           const stations: ChargingStation[] = result.data.map((data: any) => ({
             id: data.stationId,
             name: `充电桩 ${data.stationId}`,
@@ -220,7 +221,7 @@ export default function FleetManagerPage() {
             energy: data.energy,
             remainingTime: data.remainingTime,
             temperature: data.temperature,
-            lastUpdate: new Date(data.ts).toLocaleString(),
+            lastUpdate: data.lastUpdate || new Date(data.ts).toLocaleString(),
             connectorType: data.connectorType,
             maxPower: data.maxPower,
             location: data.location

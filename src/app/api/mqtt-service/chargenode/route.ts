@@ -22,56 +22,35 @@ export async function POST(request: NextRequest) {
     const stationId = data.stationId
     const timestamp = data.ts || Date.now()
     
-    // 存储到Redis
-    const redisKey = `chargenode:${stationId}`
-    const chargeNodeData: Record<string, string | number> = {
+    // 准备充电桩数据 - 与telemetry格式保持一致
+    const chargeNodeData = {
       stationId,
       ts: timestamp,
       status: data.status || "offline",
-      lastUpdate: new Date(timestamp).toISOString()
+      voltage: typeof data.voltage === 'number' ? data.voltage : undefined,
+      current: typeof data.current === 'number' ? data.current : undefined,
+      power: typeof data.power === 'number' ? data.power : undefined,
+      energy: typeof data.energy === 'number' ? data.energy : undefined,
+      remainingTime: typeof data.remainingTime === 'number' ? data.remainingTime : undefined,
+      temperature: typeof data.temperature === 'number' ? data.temperature : undefined,
+      connectorType: typeof data.connectorType === 'string' ? data.connectorType : undefined,
+      maxPower: typeof data.maxPower === 'number' ? data.maxPower : undefined,
+      location: typeof data.location === 'string' ? data.location : undefined,
+      faultCode: typeof data.faultCode === 'string' ? data.faultCode : undefined,
+      faultMessage: typeof data.faultMessage === 'string' ? data.faultMessage : undefined
     }
-    
-    // 只添加非null值
-    if (data.voltage !== null && data.voltage !== undefined) chargeNodeData.voltage = data.voltage
-    if (data.current !== null && data.current !== undefined) chargeNodeData.current = data.current
-    if (data.power !== null && data.power !== undefined) chargeNodeData.power = data.power
-    if (data.energy !== null && data.energy !== undefined) chargeNodeData.energy = data.energy
-    if (data.remainingTime !== null && data.remainingTime !== undefined) chargeNodeData.remainingTime = data.remainingTime
-    if (data.temperature !== null && data.temperature !== undefined) chargeNodeData.temperature = data.temperature
-    if (data.connectorType) chargeNodeData.connectorType = data.connectorType
-    if (data.maxPower !== null && data.maxPower !== undefined) chargeNodeData.maxPower = data.maxPower
-    if (data.location) chargeNodeData.location = data.location
-    if (data.faultCode) chargeNodeData.faultCode = data.faultCode
-    if (data.faultMessage) chargeNodeData.faultMessage = data.faultMessage
 
-    // 存储最新数据
-    await redis.hset(redisKey, chargeNodeData)
+    // 使用与telemetry相同的存储方式：telemetry:chargenode:{stationId}
+    const redisKey = `telemetry:chargenode:${stationId}`
+    
+    // 存储到Redis List（与battery/GPS数据存储方式一致）
+    await redis.lpush(redisKey, JSON.stringify(chargeNodeData))
+    
+    // 保留最近200条记录（与telemetry相同）
+    await redis.ltrim(redisKey, 0, 199)
     
     // 设置过期时间为24小时
     await redis.expire(redisKey, 24 * 60 * 60)
-    
-    // 添加到充电桩列表
-    await redis.sadd('chargenode:list', stationId)
-    await redis.expire('chargenode:list', 24 * 60 * 60)
-    
-    // 存储历史数据（可选，用于趋势分析）
-    const historyKey = `chargenode:history:${stationId}`
-    const historyData = {
-      ts: timestamp,
-      status: data.status,
-      voltage: data.voltage,
-      current: data.current,
-      power: data.power,
-      temperature: data.temperature
-    }
-    
-    // 使用有序集合存储历史数据，以时间戳为分数
-    await redis.zadd(historyKey, { score: timestamp, member: JSON.stringify(historyData) })
-    
-    // 保留最近24小时的历史数据
-    const oneDayAgo = timestamp - (24 * 60 * 60 * 1000)
-    await redis.zremrangebyscore(historyKey, 0, oneDayAgo)
-    await redis.expire(historyKey, 25 * 60 * 60) // 25小时过期
 
     console.log(`[Charging Station API] ✅ Stored data for station ${stationId}`)
 

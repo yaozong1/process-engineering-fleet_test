@@ -21,6 +21,7 @@ export interface ChargingStation {
   connectorType?: string  // 连接器类型
   maxPower?: number       // 最大功率 (kW)
   location?: string       // 位置
+  isTimeout?: boolean     // 是否超时离线
 }
 
 interface ChargingStationDashboardProps {
@@ -278,6 +279,11 @@ export default function ChargingStationDashboard({
                   <div>位置: {station.location}</div>
                 )}
                 <div>更新: {station.lastUpdate}</div>
+                {station.isTimeout && (
+                  <div className="text-red-500 text-sm mt-1">
+                    ⚠️ 设备超时离线 (超过5分钟无数据)
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
