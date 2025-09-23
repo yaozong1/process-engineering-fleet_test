@@ -45,13 +45,16 @@ export async function GET(req: NextRequest) {
       const keys = await redis.keys('telemetry:*')
       console.log('[API] 找到的Redis键:', keys)
       
-      // 从键名中提取设备ID
+      // 从键名中提取设备ID，但排除充电桩设备
       const devices = keys
         .filter((key: string) => key.startsWith('telemetry:'))
         .map((key: string) => key.replace('telemetry:', ''))
-        .filter((deviceId: string) => deviceId.length > 0)
+        .filter((deviceId: string) => {
+          // 排除充电桩设备 (chargenode:*)
+          return deviceId.length > 0 && !deviceId.startsWith('chargenode:')
+        })
       
-      console.log('[API] 提取的设备列表:', devices)
+      console.log('[API] 提取的设备列表 (已排除充电桩):', devices)
       
       return NextResponse.json({ 
         devices: devices,

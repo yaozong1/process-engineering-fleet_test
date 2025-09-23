@@ -198,6 +198,26 @@ Redis键: telemetry:chargenode:{stationId}
 
 ---
 
+## 🔧 故障排除
+
+### 常见问题及解决方案
+
+1. **充电桩显示超时离线**
+   - 检查MQTT消息的时间戳 `ts` 字段是否为当前时间
+   - 使用 `Date.now()` 生成正确的时间戳
+   - 超过5分钟的旧时间戳会被标记为超时
+
+2. **MQTT消息格式错误**
+   - 确保所有必需字段都包含在消息中
+   - 检查数据类型是否正确（数字类型不要用字符串）
+
+3. **设备列表污染问题** ⭐ **已修复**
+   - **问题**: Battery和GPS页面会调用充电桩API (`GET /api/telemetry?device=chargenode:PN-001&latest=1`)
+   - **原因**: `/api/telemetry?list=1` 返回所有设备，包括充电桩
+   - **解决**: 已修复设备列表API，现在只返回车辆设备 (PE-xxx)，排除充电桩设备 (chargenode:xxx)
+   - **验证**: `curl "http://localhost:3000/api/telemetry?list=1"` 应该只返回 PE-xxx 设备
+   - **效果**: 切换到Battery/GPS页面时不再执行充电桩API调用
+
 ## 7. 功率计算
 ```
 power (kW) = voltage (V) × current (A) ÷ 1000
