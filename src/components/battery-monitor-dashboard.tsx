@@ -238,7 +238,7 @@ export function BatteryMonitorDashboard() {
       {/* Main Content - Left-Right Layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Panel - Vehicle List */}
-        <div className="w-80 border-r bg-gray-50/50">
+        <div className="w-[700px] border-r bg-gray-50/50">
           <Card className="h-full rounded-none border-0 shadow-none">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -263,40 +263,38 @@ export function BatteryMonitorDashboard() {
                             : "border-gray-200 hover:border-gray-300 bg-white"
                         }`}
                       >
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
-                              <span className="font-semibold text-lg">{battery.vehicleId}</span>
-                            </div>
+                        <div className="flex items-center gap-4">
+                          {/* Left: Icon and Vehicle ID */}
+                          <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
+                            {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
+                            <span className="font-semibold text-base">{battery.vehicleId}</span>
                             <Badge variant={!status.isOnline ? "secondary" : "default"} className="text-xs">
                               {status.isOnline ? "Online" : "Offline"}
                             </Badge>
                           </div>
                           
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
+                          {/* Middle: Battery Level */}
+                          <div className="flex-1 px-4">
+                            <div className="flex items-center justify-between mb-1">
                               <span className="text-sm text-gray-600">Battery</span>
-                              <span className={`text-xl font-bold ${getBatteryColor(battery.currentLevel)}`}>
+                              <span className={`text-lg font-bold ${getBatteryColor(battery.currentLevel)}`}>
                                 {battery.currentLevel}%
                               </span>
                             </div>
                             <Progress value={battery.currentLevel} className="h-2" />
-                            
-                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                              <div>
-                                <span>Voltage: </span>
-                                <span className="font-medium">{battery.voltage.toFixed(1)}V</span>
-                              </div>
-                              <div>
-                                <span>Temperature: </span>
-                                <span className="font-medium">{battery.temperature.toFixed(1)}°C</span>
-                              </div>
+                          </div>
+                          
+                          {/* Right: Details */}
+                          <div className="flex flex-col text-xs text-gray-600 text-right min-w-0 flex-shrink-0 space-y-1">
+                            <div>
+                              <span className="font-medium">{battery.voltage.toFixed(1)}V</span>
                             </div>
-                            
+                            <div>
+                              <span className="font-medium">{battery.temperature.toFixed(1)}°C</span>
+                            </div>
                             <div className="text-xs text-gray-500">
-                              {battery.chargingStatus === "charging" ? "🔌 Charging" :
-                               battery.chargingStatus === "discharging" ? "🔋 Discharging" : "⏸️ Idle"}
+                              {battery.chargingStatus === "charging" ? "🔌" :
+                               battery.chargingStatus === "discharging" ? "🔋" : "⏸️"}
                             </div>
                           </div>
                         </div>
