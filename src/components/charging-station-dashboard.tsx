@@ -106,12 +106,12 @@ export default function ChargingStationDashboard({
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">充电桩管理</h1>
-          <p className="text-gray-600">实时监控充电桩状态和性能</p>
+          <h1 className="text-2xl font-bold">Charging Station Management</h1>
+          <p className="text-gray-600">Real-time monitoring of charging station status and performance</p>
         </div>
         <Button onClick={handleRefresh} variant="outline" size="sm">
           <RefreshCw className="w-4 h-4 mr-2" />
-          刷新
+          Refresh
         </Button>
       </div>
 
@@ -122,7 +122,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <Zap className="w-4 h-4 text-blue-600" />
               <div>
-                <p className="text-sm text-gray-600">总数</p>
+                <p className="text-sm text-gray-600">Total</p>
                 <p className="text-xl font-bold">{stats.total}</p>
               </div>
             </div>
@@ -134,7 +134,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <Battery className="w-4 h-4 text-green-600" />
               <div>
-                <p className="text-sm text-gray-600">充电中</p>
+                <p className="text-sm text-gray-600">Charging</p>
                 <p className="text-xl font-bold text-green-600">{stats.charging}</p>
               </div>
             </div>
@@ -146,7 +146,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <Power className="w-4 h-4 text-blue-600" />
               <div>
-                <p className="text-sm text-gray-600">空闲</p>
+                <p className="text-sm text-gray-600">Idle</p>
                 <p className="text-xl font-bold text-blue-600">{stats.idle}</p>
               </div>
             </div>
@@ -158,7 +158,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <AlertCircle className="w-4 h-4 text-red-600" />
               <div>
-                <p className="text-sm text-gray-600">故障</p>
+                <p className="text-sm text-gray-600">Fault</p>
                 <p className="text-xl font-bold text-red-600">{stats.fault}</p>
               </div>
             </div>
@@ -170,7 +170,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <div className="w-4 h-4 rounded-full bg-gray-500"></div>
               <div>
-                <p className="text-sm text-gray-600">离线</p>
+                <p className="text-sm text-gray-600">Offline</p>
                 <p className="text-xl font-bold text-gray-600">{stats.offline}</p>
               </div>
             </div>
@@ -182,7 +182,7 @@ export default function ChargingStationDashboard({
             <div className="flex items-center space-x-2">
               <Gauge className="w-4 h-4 text-purple-600" />
               <div>
-                <p className="text-sm text-gray-600">总功率</p>
+                <p className="text-sm text-gray-600">Total Power</p>
                 <p className="text-xl font-bold text-purple-600">{formatPower(stats.totalPower)}</p>
               </div>
             </div>
@@ -216,25 +216,25 @@ export default function ChargingStationDashboard({
               {/* 电气参数 */}
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
-                  <span className="text-gray-600">电压:</span>
+                  <span className="text-gray-600">Voltage:</span>
                   <div className="font-mono text-blue-600">
                     {station.voltage ? `${station.voltage.toFixed(1)}V` : '--'}
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-600">电流:</span>
+                  <span className="text-gray-600">Current:</span>
                   <div className="font-mono text-green-600">
                     {station.current ? `${station.current.toFixed(1)}A` : '--'}
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-600">功率:</span>
+                  <span className="text-gray-600">Power:</span>
                   <div className="font-mono text-purple-600">
                     {station.power ? formatPower(station.power) : '--'}
                   </div>
                 </div>
                 <div>
-                  <span className="text-gray-600">温度:</span>
+                  <span className="text-gray-600">Temperature:</span>
                   <div className={`font-mono ${
                     station.temperature && station.temperature > 60 ? 'text-red-600' : 
                     station.temperature && station.temperature > 40 ? 'text-yellow-600' : 'text-green-600'
@@ -250,7 +250,7 @@ export default function ChargingStationDashboard({
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center space-x-1">
                       <Clock className="w-3 h-3 text-green-600" />
-                      <span className="text-green-700">剩余时间</span>
+                      <span className="text-green-700">Remaining Time</span>
                     </div>
                     <span className="font-mono text-green-700">
                       {formatTime(station.remainingTime)}
@@ -258,7 +258,7 @@ export default function ChargingStationDashboard({
                   </div>
                   {station.energy && (
                     <div className="flex items-center justify-between text-sm mt-1">
-                      <span className="text-green-700">已充电量</span>
+                      <span className="text-green-700">Energy Charged</span>
                       <span className="font-mono text-green-700">
                         {station.energy.toFixed(1)} kWh
                       </span>
@@ -270,18 +270,18 @@ export default function ChargingStationDashboard({
               {/* 充电桩信息 */}
               <div className="text-xs text-gray-500 space-y-1">
                 {station.connectorType && (
-                  <div>连接器: {station.connectorType}</div>
+                  <div>Connector: {station.connectorType}</div>
                 )}
                 {station.maxPower && (
-                  <div>最大功率: {formatPower(station.maxPower)}</div>
+                  <div>Max Power: {formatPower(station.maxPower)}</div>
                 )}
                 {station.location && (
-                  <div>位置: {station.location}</div>
+                  <div>Location: {station.location}</div>
                 )}
-                <div>更新: {station.lastUpdate}</div>
+                <div>Updated: {station.lastUpdate}</div>
                 {station.isTimeout && (
                   <div className="text-red-500 text-sm mt-1">
-                    ⚠️ 设备超时离线 (超过5分钟无数据)
+                    ⚠️ Device timeout offline (no data for over 5 minutes)
                   </div>
                 )}
               </div>
@@ -293,8 +293,8 @@ export default function ChargingStationDashboard({
       {stations.length === 0 && (
         <div className="text-center py-12">
           <Zap className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">暂无充电桩数据</p>
-          <p className="text-sm text-gray-500 mt-1">请检查MQTT连接和数据源</p>
+          <p className="text-gray-600">No charging station data</p>
+          <p className="text-sm text-gray-500 mt-1">Please check MQTT connection and data source</p>
         </div>
       )}
     </div>

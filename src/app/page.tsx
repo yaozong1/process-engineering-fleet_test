@@ -213,7 +213,7 @@ export default function FleetManagerPage() {
           // 新的API返回的数据结构与telemetry一致
           const stations: ChargingStation[] = result.data.map((data: any) => ({
             id: data.stationId,
-            name: `充电桩 ${data.stationId}`,
+            name: `Station ${data.stationId}`,
             status: data.status,
             voltage: data.voltage,
             current: data.current,
@@ -224,7 +224,8 @@ export default function FleetManagerPage() {
             lastUpdate: data.lastUpdate || new Date(data.ts).toLocaleString(),
             connectorType: data.connectorType,
             maxPower: data.maxPower,
-            location: data.location
+            location: data.location,
+            isTimeout: data.isTimeout
           }))
           
           setChargingStations(stations)
@@ -292,18 +293,18 @@ export default function FleetManagerPage() {
                       chargingStations.length > 0 ? "bg-green-500" : "bg-gray-500"
                     }`}></div>
                     <span className="text-sm font-medium">
-                      状态: {chargingStationLoading ? "加载中" : "已连接"}
+                      Status: {chargingStationLoading ? "Loading" : "Connected"}
                     </span>
                   </div>
                   <div className="text-sm text-gray-600">
-                    数据源: 后端API
+                    Data Source: Backend API
                   </div>
                   <div className="text-sm text-gray-600">
-                    刷新间隔: 10秒
+                    Refresh Interval: 10s
                   </div>
                 </div>
                 <div className="text-sm text-gray-600">
-                  充电桩总数: {chargingStations.length}
+                  Total Stations: {chargingStations.length}
                 </div>
               </div>
             </div>

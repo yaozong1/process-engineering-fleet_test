@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// 发送充电桩MQTT消息脚本 - 自动使用当前时间戳
+// 测试时间戳自动更新功能
 
 const mqtt = require('mqtt');
 
@@ -10,13 +10,15 @@ const client = mqtt.connect('mqtt://localhost:1883', {
 });
 
 client.on('connect', function () {
-  console.log('🔗 MQTT连接成功');
+  console.log('🔗 连接本地MQTT成功');
   
-  // 要发送的充电桩数据 - 使用当前时间戳
+  // 发送一个带有旧时间戳的消息（10分钟前）
+  const oldTimestamp = Date.now() - (10 * 60 * 1000); // 10分钟前
+  
   const message = {
     stationId: "PN-003",
-    ts: Date.now(), // 自动使用当前时间戳
-    status: "occupied",
+    ts: oldTimestamp, // 使用旧时间戳
+    status: "charging",
     voltage: 400.5,
     current: 125.3,
     power: 51.2,
@@ -30,16 +32,18 @@ client.on('connect', function () {
 
   const topic = `fleet/chargenode/${message.stationId}`;
   
-  console.log('📤 发送消息到:', topic);
-  console.log('📋 消息内容:', JSON.stringify(message, null, 2));
-  console.log('⏰ 时间戳:', message.ts, '对应时间:', new Date(message.ts).toLocaleString('zh-CN'));
+  console.log('📤 发送带有旧时间戳的消息:', topic);
+  console.log('⏰ 旧时间戳:', oldTimestamp, '(', new Date(oldTimestamp).toLocaleString(), ')');
+  console.log('🕐 当前时间:', Date.now(), '(', new Date().toLocaleString(), ')');
+  console.log('⏱️ 时间差:', Math.floor((Date.now() - oldTimestamp) / 1000), '秒');
+  console.log('📋 消息:', JSON.stringify(message, null, 2));
   
   client.publish(topic, JSON.stringify(message), function(err) {
     if (err) {
       console.error('❌ 发送失败:', err);
     } else {
       console.log('✅ 消息发送成功!');
-      console.log('💡 现在检查界面，PN-002应该显示为 charging 状态');
+      console.log('💡 后台应该自动将时间戳更新为当前时间');
     }
     client.end();
   });

@@ -426,10 +426,16 @@ class MQTTService {
         return
       }
 
+      // 始终使用当前时间戳存储，确保数据是最新的
+      const currentTime = Date.now()
+      const originalTimestamp = data.ts
+      
+      this.log(`⏰ 充电桩 ${stationId} 收到消息，原始时间戳: ${originalTimestamp ? new Date(originalTimestamp).toLocaleString() : '无'}，存储时间戳: ${new Date(currentTime).toLocaleString()}`)
+
       // 准备存储到Redis的充电桩数据
       const chargeNodeData = {
         stationId,
-        ts: data.ts || Date.now(),
+        ts: currentTime, // 始终使用当前时间戳
         status: data.status || "offline",
         voltage: typeof data.voltage === 'number' ? data.voltage : null,
         current: typeof data.current === 'number' ? data.current : null,
@@ -444,12 +450,12 @@ class MQTTService {
         faultMessage: typeof data.faultMessage === 'string' ? data.faultMessage : null
       }
 
-      this.log(`🔌 Charging station ${stationId} data: status=${chargeNodeData.status}, power=${chargeNodeData.power}kW, voltage=${chargeNodeData.voltage}V`)
+      this.log(`🔌 Charging station ${stationId} data: status=${chargeNodeData.status}, power=${chargeNodeData.power}kW, voltage=${chargeNodeData.voltage}V, ts=current-time`)
 
       // 存储充电桩数据（使用专门的API端点）
       const storeResult = await this.storeChargeNodeDataWithRetry(chargeNodeData)
       if (storeResult === 'stored') {
-        this.log(`✅ 存储充电桩 ${stationId} 的数据到Redis (状态: ${chargeNodeData.status}, 功率: ${chargeNodeData.power}kW)`)
+        this.log(`✅ 存储充电桩 ${stationId} 的数据到Redis (状态: ${chargeNodeData.status}, 功率: ${chargeNodeData.power}kW, 时间戳: current-time)`)
       }
 
     } catch (error) {
