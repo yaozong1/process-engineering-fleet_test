@@ -212,8 +212,8 @@ export function GpsTrackingDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">GPS 车辆追踪</h1>
-          <p className="text-muted-foreground">实时监控车队位置和状态</p>
+          <h1 className="text-3xl font-bold tracking-tight">GPS Vehicle Tracking</h1>
+          <p className="text-muted-foreground">Real-time fleet location and status monitoring</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -223,7 +223,7 @@ export function GpsTrackingDashboard() {
             className="flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />
-            刷新
+            Refresh
           </Button>
           <Button
             variant={isLiveTracking ? "default" : "outline"}
@@ -234,12 +234,12 @@ export function GpsTrackingDashboard() {
             {isLiveTracking ? (
               <>
                 <Zap className="w-4 h-4" />
-                实时跟踪
+                Live Tracking
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4" />
-                暂停跟踪
+                Paused
               </>
             )}
           </Button>
@@ -252,7 +252,7 @@ export function GpsTrackingDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">活跃车辆</p>
+                <p className="text-sm font-medium text-gray-600">Active Vehicles</p>
                 <p className="text-2xl font-bold">{activeVehicles}/{totalVehicles}</p>
               </div>
               <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
@@ -265,7 +265,7 @@ export function GpsTrackingDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">平均电量</p>
+                <p className="text-sm font-medium text-gray-600">Avg Battery</p>
                 <p className="text-2xl font-bold">{averageBattery}%</p>
               </div>
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -278,8 +278,8 @@ export function GpsTrackingDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">数据状态</p>
-                <p className="text-2xl font-bold">{isPolling ? "实时" : "暂停"}</p>
+                <p className="text-sm font-medium text-gray-600">Data Status</p>
+                <p className="text-2xl font-bold">{isPolling ? "Live" : "Paused"}</p>
               </div>
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                 isPolling ? "bg-green-100" : "bg-gray-100"
@@ -295,7 +295,7 @@ export function GpsTrackingDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">在线设备</p>
+                <p className="text-sm font-medium text-gray-600">Online Devices</p>
                 <p className="text-2xl font-bold">
                   {vehicles.filter(v => v.status !== "offline").length}
                 </p>
@@ -314,11 +314,11 @@ export function GpsTrackingDashboard() {
           <CardHeader 
             className="cursor-pointer"
             onClick={() => setSelectedVehicle(null)}
-            title={selectedVehicle ? "点击标题栏取消选中车辆" : ""}
+            title={selectedVehicle ? "Click header to deselect vehicle" : ""}
           >
             <CardTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5" />
-              车辆列表
+              Vehicle List
             </CardTitle>
           </CardHeader>
           <CardContent 
@@ -329,7 +329,7 @@ export function GpsTrackingDashboard() {
                 setSelectedVehicle(null)
               }
             }}
-            title={selectedVehicle ? "点击空白处取消选中车辆" : ""}
+            title={selectedVehicle ? "Click blank area to deselect vehicle" : ""}
           >
             <div 
               className="space-y-4"
@@ -366,7 +366,7 @@ export function GpsTrackingDashboard() {
                   </div>
                   <div className="text-sm text-gray-600 space-y-1">
                     <div className="flex justify-between">
-                      <span>电量:</span>
+                      <span>Battery:</span>
                       <span className={`font-medium ${
                         vehicle.battery > 50 ? "text-green-600" : 
                         vehicle.battery > 20 ? "text-yellow-600" : "text-red-600"
@@ -375,20 +375,20 @@ export function GpsTrackingDashboard() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>速度:</span>
+                      <span>Speed:</span>
                       <span>{vehicle.speed} mph</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>位置:</span>
+                      <span>Location:</span>
                       <span>
                         {vehicle.lat !== 0 && vehicle.lng !== 0 
                           ? `${vehicle.lat.toFixed(4)}, ${vehicle.lng.toFixed(4)}`
-                          : "未知"
+                          : "Unknown"
                         }
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>更新:</span>
+                      <span>Updated:</span>
                       <span>{vehicle.lastUpdate}</span>
                     </div>
                   </div>
@@ -397,8 +397,8 @@ export function GpsTrackingDashboard() {
               {vehicles.length === 0 && (
                 <div className="text-center py-8">
                   <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600">暂无车辆数据</p>
-                  <p className="text-sm text-gray-500 mt-1">等待设备连接...</p>
+                  <p className="text-gray-600">No vehicle data</p>
+                  <p className="text-sm text-gray-500 mt-1">Waiting for device connection...</p>
                 </div>
               )}
               
@@ -411,7 +411,7 @@ export function GpsTrackingDashboard() {
                     setSelectedVehicle(null)
                   }}
                 >
-                  点击此处取消选中车辆
+                  Click here to deselect vehicle
                 </div>
               )}
             </div>
@@ -423,7 +423,7 @@ export function GpsTrackingDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MapPin className="w-5 h-5" />
-              实时地图
+              Real-time Map
               {selectedVehicle && (
                 <Badge variant="outline" className="ml-auto">
                   {selectedVehicle.name}
@@ -445,9 +445,9 @@ export function GpsTrackingDashboard() {
                 <div className="flex items-center justify-center h-full bg-gray-100">
                   <div className="text-center">
                     <MapPin className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">等待GPS数据...</p>
+                    <p className="text-gray-600">Waiting for GPS data...</p>
                     <p className="text-sm text-gray-500 mt-1">
-                      {vehicles.length === 0 ? "没有设备数据" : "等待位置信息"}
+                      {vehicles.length === 0 ? "No device data" : "Waiting for location info"}
                     </p>
                   </div>
                 </div>
@@ -463,19 +463,19 @@ export function GpsTrackingDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Navigation className="w-5 h-5" />
-              {selectedVehicle.name} - 详细信息
+              {selectedVehicle.name} - Details
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">状态</p>
+                <p className="text-sm font-medium text-gray-500">Status</p>
                 <Badge variant={getStatusBadgeVariant(selectedVehicle.status)}>
                   {selectedVehicle.status}
                 </Badge>
               </div>
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">电池电量</p>
+                <p className="text-sm font-medium text-gray-500">Battery Level</p>
                 <p className={`text-xl font-bold ${
                   selectedVehicle.battery > 50 ? "text-green-600" : 
                   selectedVehicle.battery > 20 ? "text-yellow-600" : "text-red-600"
@@ -484,20 +484,20 @@ export function GpsTrackingDashboard() {
                 </p>
               </div>
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">当前速度</p>
+                <p className="text-sm font-medium text-gray-500">Current Speed</p>
                 <p className="text-xl font-bold">{selectedVehicle.speed} mph</p>
               </div>
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">最后更新</p>
+                <p className="text-sm font-medium text-gray-500">Last Updated</p>
                 <p className="text-xl font-bold">{selectedVehicle.lastUpdate}</p>
               </div>
             </div>
             <div className="mt-4 pt-4 border-t">
-              <p className="text-sm font-medium text-gray-500 mb-2">GPS坐标</p>
+              <p className="text-sm font-medium text-gray-500 mb-2">GPS Coordinates</p>
               <p className="text-lg font-mono">
                 {selectedVehicle.lat !== 0 && selectedVehicle.lng !== 0 
                   ? `${selectedVehicle.lat.toFixed(6)}, ${selectedVehicle.lng.toFixed(6)}`
-                  : "位置信息不可用"
+                  : "Location unavailable"
                 }
               </p>
             </div>
