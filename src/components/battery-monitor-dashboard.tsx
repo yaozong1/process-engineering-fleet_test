@@ -18,7 +18,7 @@ import {
   Thermometer
 } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts"
-import { useDeviceData } from "@/contexts/DeviceDataContext"
+import { useDeviceData } from "../contexts/DeviceDataContext"
 
 interface BatteryData {
   vehicleId: string
@@ -71,6 +71,12 @@ export function BatteryMonitorDashboard() {
   
   const [selectedVehicle, setSelectedVehicle] = useState<string>("")
   const [isLoading, setIsLoading] = useState(true)
+
+  // 页面挂载时强制刷新数据，确保显示最新信息
+  useEffect(() => {
+    console.log('[BatteryDashboard] 页面挂载，强制刷新设备数据')
+    refreshAllDevices()
+  }, [refreshAllDevices])
   
   // 将Context数据转换为组件需要的格式
   const batteryData: BatteryData[] = devicesList.map(deviceId => {
@@ -112,8 +118,13 @@ export function BatteryMonitorDashboard() {
     }
   })
   
-  // 获取选中设备的历史数据
-  const historyData = selectedVehicle ? getDeviceHistory(selectedVehicle) : []
+  // 获取选中设备的历史数据，转换为图表所需格式
+  const historyData = selectedVehicle ? getDeviceHistory(selectedVehicle).map((item, index) => ({
+    time: item.time,
+    level: item.level || 0,
+    voltage: item.voltage || 0,
+    temperature: item.temperature || 0
+  })).reverse() : [] // 反转数组让最新的数据在右边
   
   // 选择第一个设备（如果还没选择）
   useEffect(() => {
@@ -122,6 +133,18 @@ export function BatteryMonitorDashboard() {
       console.log(`[BatteryDashboard] 自动选择设备: ${devicesList[0]}`)
     }
   }, [selectedVehicle, devicesList])
+  
+  // 当选择设备变化时，加载该设备的历史数据
+  useEffect(() => {
+    if (selectedVehicle) {
+      const existingHistory = getDeviceHistory(selectedVehicle)
+      if (existingHistory.length === 0) {
+        console.log(`[BatteryDashboard] 为设备 ${selectedVehicle} 加载历史数据`)
+        // 刷新单个设备数据来获取历史
+        refreshDeviceData(selectedVehicle)
+      }
+    }
+  }, [selectedVehicle, refreshDeviceData, getDeviceHistory])
   
   // 组件挂载时开始轮询
   useEffect(() => {
@@ -147,23 +170,22 @@ export function BatteryMonitorDashboard() {
     setIsLoading(true)
     console.log('[BatteryDashboard] 开始手动同步云端数据...')
     
-    if (selectedVehicle) {
-      // 获取选中设备的完整历史数据
-      try {
-        const response = await fetch(`/api/telemetry?device=${selectedVehicle}&limit=200`)
-        if (response.ok) {
-          const result = await response.json()
-          if (result.data && result.data.length > 0) {
-            console.log(`[BatteryDashboard] 从云端获取了 ${result.data.length} 条历史数据`)
-          }
-        }
-      } catch (error) {
-        console.error('[BatteryDashboard] 同步云端数据失败:', error)
+    try {
+      // 刷新所有设备数据
+      await refreshAllDevices()
+      
+      // 如果有选中的设备，重新加载其数据
+      if (selectedVehicle) {
+        await refreshDeviceData(selectedVehicle)
+        console.log(`[BatteryDashboard] 已刷新设备 ${selectedVehicle} 的数据`)
       }
+      
+      console.log('[BatteryDashboard] 云端数据同步完成')
+    } catch (error) {
+      console.error('[BatteryDashboard] 同步云端数据失败:', error)
+    } finally {
+      setIsLoading(false)
     }
-    
-    await refreshAllDevices()
-    setIsLoading(false)
   }
 
   if (isLoading && batteryData.length === 0) {
@@ -172,7 +194,7 @@ export function BatteryMonitorDashboard() {
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-500" />
-            <p className="text-gray-600">加载电池数据中...</p>
+            <p className="text-gray-600">Loading battery data...</p>
           </div>
         </div>
       </div>
@@ -186,8 +208,8 @@ export function BatteryMonitorDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between p-6 border-b">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">电池监控</h1>
-          <p className="text-muted-foreground">实时监控车队电池状态和性能指标</p>
+          <h1 className="text-3xl font-bold tracking-tight">Battery Monitor</h1>
+          <p className="text-muted-foreground">Real-time fleet battery status and performance monitoring</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -198,7 +220,7 @@ export function BatteryMonitorDashboard() {
             className="flex items-center gap-2"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            刷新
+            Refresh
           </Button>
           <Button
             variant="outline"
@@ -208,7 +230,7 @@ export function BatteryMonitorDashboard() {
             className="flex items-center gap-2"
           >
             <Activity className="w-4 h-4" />
-            {isPolling ? '轮询中' : '离线模式'}
+            {isPolling ? 'Polling' : 'Offline Mode'}
           </Button>
         </div>
       </div>
@@ -221,7 +243,7 @@ export function BatteryMonitorDashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Battery className="w-5 h-5" />
-                车辆列表
+                Vehicle List
               </CardTitle>
             </CardHeader>
             <CardContent className="px-0 pb-0">
@@ -247,14 +269,14 @@ export function BatteryMonitorDashboard() {
                               {getBatteryIcon(battery.currentLevel, battery.chargingStatus)}
                               <span className="font-semibold text-lg">{battery.vehicleId}</span>
                             </div>
-                            <Badge variant={status.isOnline ? "default" : "secondary"} className="text-xs">
-                              {status.isOnline ? "在线" : "离线"}
+                            <Badge variant={!status.isOnline ? "secondary" : "default"} className="text-xs">
+                              {status.isOnline ? "Online" : "Offline"}
                             </Badge>
                           </div>
                           
                           <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="text-sm text-gray-600">电量</span>
+                              <span className="text-sm text-gray-600">Battery</span>
                               <span className={`text-xl font-bold ${getBatteryColor(battery.currentLevel)}`}>
                                 {battery.currentLevel}%
                               </span>
@@ -263,18 +285,18 @@ export function BatteryMonitorDashboard() {
                             
                             <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                               <div>
-                                <span>电压: </span>
+                                <span>Voltage: </span>
                                 <span className="font-medium">{battery.voltage.toFixed(1)}V</span>
                               </div>
                               <div>
-                                <span>温度: </span>
+                                <span>Temperature: </span>
                                 <span className="font-medium">{battery.temperature.toFixed(1)}°C</span>
                               </div>
                             </div>
                             
                             <div className="text-xs text-gray-500">
-                              {battery.chargingStatus === "charging" ? "🔌 充电中" :
-                               battery.chargingStatus === "discharging" ? "🔋 放电中" : "⏸️ 待机"}
+                              {battery.chargingStatus === "charging" ? "🔌 Charging" :
+                               battery.chargingStatus === "discharging" ? "🔋 Discharging" : "⏸️ Idle"}
                             </div>
                           </div>
                         </div>
@@ -297,7 +319,7 @@ export function BatteryMonitorDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">电量水平</CardTitle>
+                <CardTitle className="text-sm font-medium">Battery Level</CardTitle>
                 {getBatteryIcon(selectedBattery.currentLevel, selectedBattery.chargingStatus)}
               </CardHeader>
               <CardContent>
@@ -306,48 +328,48 @@ export function BatteryMonitorDashboard() {
                 </div>
                 <Progress value={selectedBattery.currentLevel} className="mt-3" />
                 <p className="text-xs text-muted-foreground mt-2">
-                  {selectedBattery.chargingStatus === "charging" ? "充电中" :
-                   selectedBattery.chargingStatus === "discharging" ? "放电中" : "待机"}
+                  {selectedBattery.chargingStatus === "charging" ? "Charging" :
+                   selectedBattery.chargingStatus === "discharging" ? "Discharging" : "Idle"}
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">电压</CardTitle>
+                <CardTitle className="text-sm font-medium">Voltage</CardTitle>
                 <Zap className="w-4 h-4 text-yellow-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{selectedBattery.voltage.toFixed(2)}V</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {selectedBattery.voltage > 12 ? "正常" : "偏低"}
+                  {selectedBattery.voltage > 12 ? "Normal" : "Low"}
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">温度</CardTitle>
+                <CardTitle className="text-sm font-medium">Temperature</CardTitle>
                 <Thermometer className="w-4 h-4 text-blue-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{selectedBattery.temperature.toFixed(1)}°C</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  {selectedBattery.temperature > 40 ? "偏高" : 
-                   selectedBattery.temperature < 0 ? "偏低" : "正常"}
+                  {selectedBattery.temperature > 40 ? "High" : 
+                   selectedBattery.temperature < 0 ? "Low" : "Normal"}
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">续航里程</CardTitle>
+                <CardTitle className="text-sm font-medium">Range</CardTitle>
                 <TrendingUp className="w-4 h-4 text-green-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{selectedBattery.estimatedRange}km</div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  基于当前电量估算
+                  Estimated based on current battery
                 </p>
               </CardContent>
             </Card>
@@ -358,7 +380,7 @@ export function BatteryMonitorDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="w-5 h-5" />
-                电池历史 - {selectedVehicle}
+                Battery History - {selectedVehicle}
                 <Button
                   variant="outline"
                   size="sm"
@@ -367,7 +389,7 @@ export function BatteryMonitorDashboard() {
                   className="ml-auto flex items-center gap-2"
                 >
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  同步云端
+                  Sync Cloud
                 </Button>
               </CardTitle>
             </CardHeader>
@@ -390,7 +412,7 @@ export function BatteryMonitorDashboard() {
                     <YAxis 
                       domain={[0, 100]}
                       tick={{ fontSize: 12 }}
-                      label={{ value: '电量 (%)', angle: -90, position: 'insideLeft' }}
+                      label={{ value: 'Battery (%)', angle: -90, position: 'insideLeft' }}
                     />
                     <Area 
                       type="monotone" 
@@ -406,8 +428,8 @@ export function BatteryMonitorDashboard() {
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
                     <Activity className="w-8 h-8 mx-auto mb-4 text-gray-400" />
-                    <p className="text-gray-600">暂无历史数据</p>
-                    <p className="text-sm text-gray-500 mt-2">等待设备数据更新...</p>
+                    <p className="text-gray-600">No historical data</p>
+                    <p className="text-sm text-gray-500 mt-2">Waiting for device data updates...</p>
                   </div>
                 </div>
               )}
@@ -420,7 +442,7 @@ export function BatteryMonitorDashboard() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-orange-500" />
-                  警报信息
+                  Alert Information
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -441,21 +463,21 @@ export function BatteryMonitorDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="w-5 h-5" />
-                设备信息
+                Device Information
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">健康度</p>
+                  <p className="text-sm font-medium text-gray-500">Health</p>
                   <p className="text-lg font-semibold">{selectedBattery.health}%</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">充放电循环</p>
-                  <p className="text-lg font-semibold">{selectedBattery.cycleCount}次</p>
+                  <p className="text-sm font-medium text-gray-500">Charge Cycles</p>
+                  <p className="text-lg font-semibold">{selectedBattery.cycleCount}</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">最后更新</p>
+                  <p className="text-sm font-medium text-gray-500">Last Updated</p>
                   <p className="text-lg font-semibold">{selectedBattery.lastProbe}</p>
                 </div>
               </div>
@@ -468,8 +490,8 @@ export function BatteryMonitorDashboard() {
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
             <Battery className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-            <h3 className="text-xl font-semibold mb-2">选择车辆</h3>
-            <p className="text-gray-600">请从左侧列表选择一个车辆查看详细信息</p>
+            <h3 className="text-xl font-semibold mb-2">Select Vehicle</h3>
+            <p className="text-gray-600">Please select a vehicle from the left panel to view details</p>
           </div>
         </div>
       )}

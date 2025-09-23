@@ -12,7 +12,7 @@ export default function TestBatteryPage() {
     stopPolling,
     refreshAllDevices,
     getDeviceHistory,
-    refreshDeviceHistory
+    refreshDeviceData
   } = useDeviceData()
 
   const [selectedDevice, setSelectedDevice] = useState<string>("")
@@ -39,7 +39,7 @@ export default function TestBatteryPage() {
   }, [selectedDevice, devicesList])
 
   const batteryData = devicesList.map(deviceId => {
-    const deviceData = devicesData[deviceId]
+    const deviceData = devicesData.get(deviceId)
     if (!deviceData) {
       return {
         vehicleId: deviceId,
@@ -86,13 +86,13 @@ export default function TestBatteryPage() {
         <button 
           onClick={() => {
             if (selectedDevice) {
-              console.log('[TEST-BATTERY] 刷新历史数据:', selectedDevice)
-              refreshDeviceHistory(selectedDevice, 50)
+              console.log('[TEST-BATTERY] 刷新设备数据:', selectedDevice)
+              refreshDeviceData(selectedDevice)
             }
           }}
           className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
         >
-          刷新历史数据
+          刷新设备数据
         </button>
         
         <button 
@@ -160,8 +160,8 @@ export default function TestBatteryPage() {
                 <tbody>
                   {historyData.slice(0, 10).map((item, index) => (
                     <tr key={index} className="border-b">
-                      <td className="py-1">{new Date(item.ts).toLocaleTimeString()}</td>
-                      <td className="py-1">{item.soc || 0}%</td>
+                      <td className="py-1">{item.time}</td>
+                      <td className="py-1">{item.level || 0}%</td>
                       <td className="py-1">{item.voltage || 0}V</td>
                       <td className="py-1">{item.temperature || 0}°C</td>
                     </tr>
