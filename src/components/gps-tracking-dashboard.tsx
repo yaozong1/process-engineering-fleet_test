@@ -311,71 +311,110 @@ export function GpsTrackingDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Vehicle List */}
         <Card>
-          <CardHeader>
+          <CardHeader 
+            className="cursor-pointer"
+            onClick={() => setSelectedVehicle(null)}
+            title={selectedVehicle ? "点击标题栏取消选中车辆" : ""}
+          >
             <CardTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5" />
               车辆列表
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {vehicles.map((vehicle) => (
-              <div
-                key={vehicle.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                  selectedVehicle?.id === vehicle.id
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-gray-200 hover:border-gray-300"
-                }`}
-                onClick={() => setSelectedVehicle(vehicle)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`w-3 h-3 rounded-full ${getStatusColor(vehicle.status)}`}
-                    />
-                    <span className="font-semibold">{vehicle.name}</span>
+          <CardContent 
+            className="h-[600px] overflow-y-auto cursor-pointer"
+            onClick={(e) => {
+              // 点击空白处取消选中
+              if (e.target === e.currentTarget) {
+                setSelectedVehicle(null)
+              }
+            }}
+            title={selectedVehicle ? "点击空白处取消选中车辆" : ""}
+          >
+            <div 
+              className="space-y-4"
+              onClick={(e) => {
+                // 点击空白处取消选中
+                if (e.target === e.currentTarget) {
+                  setSelectedVehicle(null)
+                }
+              }}
+            >
+              {vehicles.map((vehicle) => (
+                <div
+                  key={vehicle.id}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                    selectedVehicle?.id === vehicle.id
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation() // 防止冒泡到父容器
+                    setSelectedVehicle(vehicle)
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-3 h-3 rounded-full ${getStatusColor(vehicle.status)}`}
+                      />
+                      <span className="font-semibold">{vehicle.name}</span>
+                    </div>
+                    <Badge variant={getStatusBadgeVariant(vehicle.status)}>
+                      {vehicle.status}
+                    </Badge>
                   </div>
-                  <Badge variant={getStatusBadgeVariant(vehicle.status)}>
-                    {vehicle.status}
-                  </Badge>
+                  <div className="text-sm text-gray-600 space-y-1">
+                    <div className="flex justify-between">
+                      <span>电量:</span>
+                      <span className={`font-medium ${
+                        vehicle.battery > 50 ? "text-green-600" : 
+                        vehicle.battery > 20 ? "text-yellow-600" : "text-red-600"
+                      }`}>
+                        {vehicle.battery}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>速度:</span>
+                      <span>{vehicle.speed} mph</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>位置:</span>
+                      <span>
+                        {vehicle.lat !== 0 && vehicle.lng !== 0 
+                          ? `${vehicle.lat.toFixed(4)}, ${vehicle.lng.toFixed(4)}`
+                          : "未知"
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>更新:</span>
+                      <span>{vehicle.lastUpdate}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <div className="flex justify-between">
-                    <span>电量:</span>
-                    <span className={`font-medium ${
-                      vehicle.battery > 50 ? "text-green-600" : 
-                      vehicle.battery > 20 ? "text-yellow-600" : "text-red-600"
-                    }`}>
-                      {vehicle.battery}%
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>速度:</span>
-                    <span>{vehicle.speed} mph</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>位置:</span>
-                    <span>
-                      {vehicle.lat !== 0 && vehicle.lng !== 0 
-                        ? `${vehicle.lat.toFixed(4)}, ${vehicle.lng.toFixed(4)}`
-                        : "未知"
-                      }
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>更新:</span>
-                    <span>{vehicle.lastUpdate}</span>
-                  </div>
+              ))}
+              {vehicles.length === 0 && (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-gray-600">暂无车辆数据</p>
+                  <p className="text-sm text-gray-500 mt-1">等待设备连接...</p>
                 </div>
-              </div>
-            ))}
-            {vehicles.length === 0 && (
-              <div className="text-center py-8">
-                <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600">暂无车辆数据</p>
-                <p className="text-sm text-gray-500 mt-1">等待设备连接...</p>
-              </div>
-            )}
+              )}
+              
+              {/* 额外的空白区域，便于点击取消选中 */}
+              {selectedVehicle && vehicles.length > 0 && (
+                <div 
+                  className="h-20 flex items-center justify-center text-gray-400 text-sm italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedVehicle(null)
+                  }}
+                >
+                  点击此处取消选中车辆
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
