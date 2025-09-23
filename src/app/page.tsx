@@ -357,18 +357,20 @@ export default function FleetManagerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <DashboardHeader 
         onLogout={handleLogout}
         user={currentUser || undefined}
       />
-      <DashboardNavigation
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
-      <main className="p-6">
-        {renderDashboard()}
-      </main>
+      <div className="flex flex-1">
+        <DashboardNavigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+        <main className="flex-1 p-6 overflow-auto">
+          {renderDashboard()}
+        </main>
+      </div>
       
       {showTimeoutWarning && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 interface User {
   userId: string;
   username: string;
-  role: 'admin' | 'user';
+  role: "admin" | "user";
   email?: string;
 }
 
@@ -20,29 +20,29 @@ export function DashboardHeader({ user, onLogout }: DashboardHeaderProps) {
   const router = useRouter();
 
   const handleCreateUser = () => {
-    router.push('/user-create');
+    router.push("/user-create");
   };
 
   return (
-    <header className="bg-white shadow-sm border-b">
-      <div className="px-6 py-4">
-        <div className="flex items-center justify-between">
+    <header className="bg-white shadow-sm border-b h-[100px]">
+      <div className="px-6 py-4 h-full">
+        <div className="flex items-center justify-between h-full">
           <div className="flex items-center space-x-4">
-            <Truck className="w-6 h-6 text-blue-600" />
-            <h1 className="text-xl font-bold">PE Fleet Manager</h1>
+            <Truck className="w-10 h-10 text-blue-600" />
+            <h1 className="text-2xl font-bold">PE Fleet Manager</h1>
           </div>
           <div className="flex items-center space-x-4">
             {user && (
               <span className="text-sm text-gray-600">
-                {user.role === 'admin'
+                {user.role === "admin"
                   ? `Welcome ${user.username} (admin)`
                   : user.username}
               </span>
             )}
-            {user?.role === 'admin' ? (
-              <Button 
-                variant="outline" 
-                size="sm" 
+            {user?.role === "admin" ? (
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleCreateUser}
                 className="flex items-center space-x-2"
               >
