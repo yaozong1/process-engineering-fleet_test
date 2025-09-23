@@ -71,7 +71,10 @@ export default function MapComponent({ vehicles, selectedVehicle, onVehicleSelec
   return (
     <div
       className="rounded-lg overflow-hidden mx-[5px] mb-[25px]"
-      style={{ aspectRatio: '21 / 9', width: 'calc(100% - 10px)' }}
+      style={{ 
+        aspectRatio: '18 / 9', 
+        width: 'calc(100% - 10px)'
+      }}
     >
       <MapContainer
         key={mapKey}

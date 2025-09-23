@@ -432,7 +432,7 @@ export function GpsTrackingDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[500px] w-full rounded-lg overflow-hidden">
+            <div className="w-full rounded-lg overflow-hidden" style={{ aspectRatio: '18 / 9' }}>
               {initialCenter ? (
                 <MapComponent
                   vehicles={mapVehicles}

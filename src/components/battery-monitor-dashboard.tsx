@@ -125,7 +125,7 @@ export function BatteryMonitorDashboard() {
     level: item.level || 0,
     voltage: item.voltage || 0,
     temperature: item.temperature || 0
-  })) : [] // 数据已经按时间顺序排列（最旧在前，最新在后）
+  })) : [] // 数据已按时间顺序排列（最旧在前，最新在后），图表显示最新数据在右边
   
   // 选择第一个设备（如果还没选择）
   useEffect(() => {

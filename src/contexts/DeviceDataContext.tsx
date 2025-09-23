@@ -239,11 +239,11 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
         }
       }
       
-      // 添加新点并限制数量
+      // 添加新点到数组末尾并限制数量（保持时间顺序：最旧在前，最新在后）
       const newHistory = [...currentHistory, point]
       const MAX_HISTORY = 200
       if (newHistory.length > MAX_HISTORY) {
-        newHistory.splice(0, newHistory.length - MAX_HISTORY)
+        newHistory.splice(0, newHistory.length - MAX_HISTORY) // 从开头删除旧数据
       }
       
       newMap.set(deviceId, newHistory)
@@ -363,6 +363,14 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
           const result = await response.json()
           const historyData = result.data || []
           
+          // 调试：打印前5条数据的时间戳以确认顺序
+          console.log(`[DeviceDataContext] 设备 ${deviceId} API原始数据时间戳顺序:`, 
+            historyData.slice(0, 5).map((item: any) => ({ 
+              ts: item.ts, 
+              date: new Date(item.ts).toLocaleString()
+            }))
+          )
+          
           // 转换为DeviceHistoryPoint格式
           const deviceHistory: DeviceHistoryPoint[] = historyData
             .filter((item: any) => item.soc !== undefined && item.voltage !== undefined && item.temperature !== undefined)
@@ -372,7 +380,25 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
               voltage: item.voltage,
               temperature: item.temperature
             }))
-            .reverse() // 确保时间顺序正确（最旧的在前）
+            
+          // 调试：打印处理后的前5条数据时间戳
+          console.log(`[DeviceDataContext] 设备 ${deviceId} 处理后数据时间戳顺序:`, 
+            deviceHistory.slice(0, 5).map(item => ({ 
+              time: item.time, 
+              date: new Date(item.time).toLocaleString()
+            }))
+          )
+          
+          // 按时间戳排序，确保最旧的数据在前，最新的数据在后
+          deviceHistory.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+          
+          // 调试：打印排序后的前5条数据时间戳
+          console.log(`[DeviceDataContext] 设备 ${deviceId} 排序后数据时间戳顺序:`, 
+            deviceHistory.slice(0, 5).map(item => ({ 
+              time: item.time, 
+              date: new Date(item.time).toLocaleString()
+            }))
+          )
           
           console.log(`[DeviceDataContext] 设备 ${deviceId} 同步了 ${deviceHistory.length} 条历史记录`)
           return { deviceId, history: deviceHistory }
