@@ -1,159 +1,226 @@
-"use client";
-import { useState, useEffect, useRef } from "react";
-import mqtt, { MqttClient } from "mqtt";
-import { mqttEnv, buildClientId, fetchSignedCredentials } from "@/lib/mqtt";
+"use client"
 
-interface LogEntry { ts: number; level: "info" | "error" | "warn"; msg: string; data?: any }
+import { useState, useEffect, useRef } from "react"
+import { useDeviceData } from "@/contexts/DeviceDataContext"
+import ChargingStationDashboard from "@/components/charging-station-dashboard"
+import type { ChargingStation } from "@/components/charging-station-dashboard"
+import mqtt, { MqttClient } from "mqtt"
+import { mqttEnv, buildClientId, fetchSignedCredentials } from "@/lib/mqtt"
 
-function useLogger() {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const push = (level: LogEntry["level"], msg: string, data?: any) => {
-    setLogs(l => [...l, { ts: Date.now(), level, msg, data }]);
-  };
-  return { logs, push };
+interface LogEntry { 
+  ts: number
+  level: "info" | "error" | "warn"
+  msg: string
+  data?: any 
 }
 
-export default function DriveMQTTPage() {
-  const { logs, push } = useLogger();
-  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
-  const [currentUrlIndex, setCurrentUrlIndex] = useState(0);
-  const [clientId, setClientId] = useState(buildClientId());
-  const [lastMessage, setLastMessage] = useState("");
-  const [topicInput, setTopicInput] = useState("");
-  const [subscribed, setSubscribed] = useState<string[]>([]);
-  const triedRef = useRef<Set<string>>(new Set());
-  const clientRef = useRef<MqttClient | null>(null);
-
-  const urls: string[] = [];
-  if (mqttEnv.host) urls.push(`wss://${mqttEnv.host}/mqtt`);
-  // Only add fallback productKey host if different from instance host
-  if (mqttEnv.productKey && mqttEnv.host && !mqttEnv.host.startsWith(`${mqttEnv.productKey}.`)) {
-    urls.push(`wss://${mqttEnv.productKey}.iot-as-mqtt.cn-shanghai.aliyuncs.com/mqtt`);
+function useLogger() {
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const push = (level: LogEntry["level"], msg: string, data?: any) => {
+    setLogs(l => [...l.slice(-99), { ts: Date.now(), level, msg, data }]) // 保持最新100条
   }
+  return { logs, push }
+}
 
-  useEffect(() => {
-    attemptConnect();
-    return () => { clientRef.current?.end(true); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+export default function ChargingStationPage() {
+  const { chargingStations, chargingStationsList, updateChargingStationData } = useDeviceData()
+  const { logs, push } = useLogger()
+  
+  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle")
+  const [selectedStation, setSelectedStation] = useState<ChargingStation | null>(null)
+  const [clientId, setClientId] = useState(buildClientId())
+  const clientRef = useRef<MqttClient | null>(null)
 
-  function attemptConnect() {
-    if (!urls.length) {
-      setStatus("error");
-      push("error", "No host configured");
-      return;
+  // 转换充电桩数据格式
+  const stations: ChargingStation[] = chargingStationsList.map(stationId => {
+    const data = chargingStations.get(stationId)
+    if (!data) return null
+    
+    return {
+      id: data.stationId,
+      name: `充电桩 ${data.stationId}`,
+      status: data.status,
+      voltage: data.voltage,
+      current: data.current,
+      power: data.power,
+      energy: data.energy,
+      remainingTime: data.remainingTime,
+      temperature: data.temperature,
+      lastUpdate: new Date(data.ts).toLocaleString(),
+      connectorType: data.connectorType,
+      maxPower: data.maxPower,
+      location: data.location
     }
-    const url = urls[currentUrlIndex];
-    if (!url) return;
-    if (triedRef.current.has(url)) return;
-    triedRef.current.add(url);
-    connect(url);
-  }
+  }).filter(Boolean) as ChargingStation[]
 
-  async function connect(url: string) {
-    setStatus("connecting");
-    let cid = buildClientId();
-    let username = mqttEnv.username;
-    let password = mqttEnv.password;
+  // MQTT连接
+  useEffect(() => {
+    attemptConnect()
+    return () => { 
+      clientRef.current?.end(true)
+    }
+  }, [])
+
+  async function attemptConnect() {
+    if (!mqttEnv.host) {
+      setStatus("error")
+      push("error", "No MQTT host configured")
+      return
+    }
+
+    setStatus("connecting")
+    let cid = buildClientId()
+    let username = mqttEnv.username
+    let password = mqttEnv.password
+
     if (!password) {
       try {
-        const signed = await fetchSignedCredentials();
-        cid = signed.clientId;
-        username = signed.username;
-        password = signed.password;
-        push("info", "Signed credentials fetched");
+        const signed = await fetchSignedCredentials()
+        cid = signed.clientId
+        username = signed.username
+        password = signed.password
+        push("info", "Signed credentials fetched")
       } catch (e: any) {
-        push("error", "Sign fetch failed", { message: e?.message });
-        setStatus("error");
-        return;
+        push("error", "Sign fetch failed", { message: e?.message })
+        setStatus("error")
+        return
       }
     }
-    setClientId(cid);
-    push("info", "Connecting", { url, cid, username });
-    const c = mqtt.connect(url, {
+
+    setClientId(cid)
+    const url = `wss://${mqttEnv.host}/mqtt`
+    push("info", "Connecting to charging station MQTT", { url, cid, username })
+
+    const client = mqtt.connect(url, {
       clientId: cid,
       username,
       password,
       keepalive: 60,
       clean: true,
-      reconnectPeriod: 0,
+      reconnectPeriod: 5000,
       protocolVersion: 4
-    });
-    clientRef.current = c;
-    c.on("connect", () => {
-      setStatus("connected");
-      push("info", "Connected OK", { url });
-    });
-    c.on("message", (t, payload) => {
-      const s = payload.toString();
-      setLastMessage(`${t}: ${s}`);
-      push("info", "Message", { topic: t, payload: s });
-    });
-    c.on("error", (e) => {
-      push("error", "Error", { message: e?.message });
-      setStatus("error");
-      c.end(true);
-      if (currentUrlIndex + 1 < urls.length) {
-        setCurrentUrlIndex(i => i + 1);
-        setTimeout(() => attemptConnect(), 50);
+    })
+
+    clientRef.current = client
+
+    client.on("connect", () => {
+      setStatus("connected")
+      push("info", "Connected to MQTT broker")
+      
+      // 订阅充电桩主题
+      const topic = "fleet/chargenode/+"
+      client.subscribe(topic, { qos: 0 }, (err) => {
+        if (err) {
+          push("error", "Subscribe failed", { topic, err: String(err) })
+        } else {
+          push("info", "Subscribed to charging stations", { topic })
+        }
+      })
+    })
+
+    client.on("message", (topic, payload) => {
+      try {
+        const message = payload.toString()
+        const data = JSON.parse(message)
+        
+        // 解析充电桩ID
+        const match = topic.match(/fleet\/chargenode\/(.+)/)
+        if (match) {
+          const stationId = match[1]
+          
+          // 更新充电桩数据
+          updateChargingStationData(stationId, {
+            stationId,
+            ts: data.ts || Date.now(),
+            status: data.status || "offline",
+            voltage: data.voltage,
+            current: data.current,
+            power: data.power,
+            energy: data.energy,
+            remainingTime: data.remainingTime,
+            temperature: data.temperature,
+            connectorType: data.connectorType,
+            maxPower: data.maxPower,
+            location: data.location,
+            faultCode: data.faultCode,
+            faultMessage: data.faultMessage
+          })
+          
+          push("info", "Charging station data updated", { 
+            stationId, 
+            status: data.status,
+            power: data.power 
+          })
+        }
+      } catch (error) {
+        push("error", "Failed to parse message", { topic, error: String(error) })
       }
-    });
-    c.on("close", () => {
+    })
+
+    client.on("error", (error) => {
+      push("error", "MQTT Error", { message: error?.message })
+      setStatus("error")
+    })
+
+    client.on("close", () => {
       if (status === "connected") {
-        push("warn", "Closed");
-        setStatus("idle");
+        push("warn", "MQTT connection closed")
+        setStatus("idle")
       }
-    });
+    })
   }
-
-  function subscribeTopic() {
-    const t = topicInput.trim();
-    if (!t || !clientRef.current) return;
-    clientRef.current.subscribe(t, { qos: 0 }, err => {
-      if (err) push("error", "Subscribe failed", { t, err: String(err) });
-      else { setSubscribed(s => [...s, t]); push("info", "Subscribed", { t }); }
-    });
-  }
-
-  function publishDemo() {
-    if (!clientRef.current) return;
-    const demoTopic = topicInput.trim() || `/sys/${mqttEnv.productKey}/${mqttEnv.deviceName}/thing/event/property/post`;
-    const payload = JSON.stringify({ id: Date.now(), version: "1.0", params: { voltage: 12.3, current: -2.1, temperature: 30, soc: 70 }, time: Date.now() });
-    clientRef.current.publish(demoTopic, payload);
-    push("info", "Published", { demoTopic, payload });
-  }
-
-  const currentUrl = urls[currentUrlIndex] || "";
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">MQTT Debug</h1>
-      <div className="grid gap-2 text-sm">
-        <div>Status: <span className="font-mono">{status}</span></div>
-        <div>URL: <span className="font-mono break-all">{currentUrl}</span></div>
-        <div>ClientID: <span className="font-mono break-all">{clientId}</span></div>
-        <div>Username: <span className="font-mono">{mqttEnv.username}</span></div>
-        <div>Has Password: {mqttEnv.password ? "Yes" : "No"}</div>
-        <div>Last Msg: <span className="font-mono break-all">{lastMessage}</span></div>
-      </div>
-      <div className="flex gap-2 items-center">
-        <input value={topicInput} onChange={e => setTopicInput(e.target.value)} placeholder="Topic" className="border px-2 py-1 rounded text-sm flex-1 bg-neutral-900 border-neutral-700" />
-        <button onClick={subscribeTopic} className="px-3 py-1 bg-blue-600 rounded text-sm">Sub</button>
-        <button onClick={publishDemo} className="px-3 py-1 bg-emerald-600 rounded text-sm">Pub</button>
-      </div>
-      {subscribed.length > 0 && (
-        <div className="text-xs">Subscribed: {subscribed.join(", ")}</div>
-      )}
-      <div className="border border-neutral-700 rounded h-72 overflow-auto bg-neutral-950 text-xs font-mono p-2 space-y-1">
-        {logs.map(l => (
-          <div key={l.ts + l.msg} className={l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-yellow-400" : "text-neutral-300"}>
-            {new Date(l.ts).toLocaleTimeString()} [{l.level}] {l.msg} {l.data ? JSON.stringify(l.data) : ""}
+    <div className="min-h-screen bg-gray-50">
+      {/* MQTT状态栏 */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                status === "connected" ? "bg-green-500" : 
+                status === "connecting" ? "bg-yellow-500" : 
+                status === "error" ? "bg-red-500" : "bg-gray-500"
+              }`}></div>
+              <span className="text-sm font-medium">MQTT: {status}</span>
+            </div>
+            <div className="text-sm text-gray-600">
+              Client: {clientId}
+            </div>
+            <div className="text-sm text-gray-600">
+              Topic: fleet/chargenode/+
+            </div>
           </div>
-        ))}
+          <div className="text-sm text-gray-600">
+            充电桩总数: {stations.length}
+          </div>
+        </div>
       </div>
-      <p className="text-xs text-neutral-500 leading-relaxed">
-        Ensure password matches the exact clientId (timestamp sensitive). Browser must use wss on port 443.
-      </p>
+
+      {/* 充电桩仪表板 */}
+      <ChargingStationDashboard
+        stations={stations}
+        selectedStation={selectedStation}
+        onStationSelect={setSelectedStation}
+      />
+
+      {/* MQTT日志 */}
+      <div className="fixed bottom-4 right-4 w-96 bg-white rounded-lg shadow-lg border border-gray-200">
+        <div className="px-4 py-2 border-b border-gray-200">
+          <h3 className="text-sm font-medium">MQTT 日志</h3>
+        </div>
+        <div className="h-64 overflow-auto p-2 bg-gray-900 text-xs font-mono">
+          {logs.slice(-20).map(log => (
+            <div key={log.ts + log.msg} className={
+              log.level === "error" ? "text-red-400" : 
+              log.level === "warn" ? "text-yellow-400" : "text-green-400"
+            }>
+              {new Date(log.ts).toLocaleTimeString()} [{log.level}] {log.msg}
+              {log.data && <div className="text-gray-400 ml-2">{JSON.stringify(log.data)}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
-  );
+  )
 }

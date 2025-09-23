@@ -29,6 +29,33 @@ export interface DeviceData {
   }
 }
 
+// 充电桩数据结构
+export interface ChargingStationData {
+  // 基本信息
+  stationId: string
+  ts: number
+  
+  // 状态信息
+  status: "idle" | "charging" | "fault" | "offline" | "occupied"
+  
+  // 电气参数
+  voltage?: number        // 电压 (V)
+  current?: number        // 电流 (A)
+  power?: number          // 功率 (kW)
+  energy?: number         // 已充电能量 (kWh)
+  
+  // 运行信息
+  remainingTime?: number  // 剩余时间 (分钟)
+  temperature?: number    // 温度 (°C)
+  connectorType?: string  // 连接器类型
+  maxPower?: number       // 最大功率 (kW)
+  location?: string       // 位置
+  
+  // 故障信息
+  faultCode?: string
+  faultMessage?: string
+}
+
 // 历史数据点
 export interface DeviceHistoryPoint {
   time: string
@@ -58,16 +85,22 @@ interface DeviceDataContextType {
   devicesData: Map<string, DeviceData>
   devicesList: string[]
   
+  // 充电桩数据存储
+  chargingStations: Map<string, ChargingStationData>
+  chargingStationsList: string[]
+  
   // 历史数据存储
   devicesHistory: Map<string, DeviceHistoryPoint[]>
   
   // 数据更新方法
   updateDeviceData: (deviceId: string, data: DeviceData) => void
+  updateChargingStationData: (stationId: string, data: ChargingStationData) => void
   updateDeviceHistory: (deviceId: string, history: DeviceHistoryPoint[]) => void
   addHistoryPoint: (deviceId: string, point: DeviceHistoryPoint) => void
   
   // 数据获取方法
   getDeviceData: (deviceId: string) => DeviceData | undefined
+  getChargingStationData: (stationId: string) => ChargingStationData | undefined
   getDeviceHistory: (deviceId: string) => DeviceHistoryPoint[]
   getDeviceStatus: (deviceId: string) => DeviceStatus
   
@@ -161,6 +194,10 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
   const [devicesList, setDevicesList] = useState<string[]>([])
   const [devicesHistory, setDevicesHistory] = useState<Map<string, DeviceHistoryPoint[]>>(() => loadHistoryFromStorage())
   
+  // 充电桩数据存储
+  const [chargingStations, setChargingStations] = useState<Map<string, ChargingStationData>>(new Map())
+  const [chargingStationsList, setChargingStationsList] = useState<string[]>([])
+  
   // 轮询控制
   const [isPolling, setIsPolling] = useState(false)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -235,6 +272,25 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
     })
     
     console.log(`[DeviceDataContext] 更新设备 ${deviceId} 数据:`, data)
+  }, [])
+  
+  // 更新充电桩数据
+  const updateChargingStationData = useCallback((stationId: string, data: ChargingStationData) => {
+    setChargingStations(prev => {
+      const newMap = new Map(prev)
+      newMap.set(stationId, { ...data, stationId })
+      return newMap
+    })
+    
+    // 如果充电桩不在列表中，添加它
+    setChargingStationsList(prev => {
+      if (!prev.includes(stationId)) {
+        return [...prev, stationId].sort()
+      }
+      return prev
+    })
+    
+    console.log(`[DeviceDataContext] 更新充电桩 ${stationId} 数据:`, data)
   }, [])
   
   // 更新设备历史数据
@@ -323,6 +379,11 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
   const getDeviceData = useCallback((deviceId: string): DeviceData | undefined => {
     return devicesData.get(deviceId)
   }, [devicesData])
+  
+  // 获取充电桩数据
+  const getChargingStationData = useCallback((stationId: string): ChargingStationData | undefined => {
+    return chargingStations.get(stationId)
+  }, [chargingStations])
   
   // 获取设备历史数据
   const getDeviceHistory = useCallback((deviceId: string): DeviceHistoryPoint[] => {
@@ -519,11 +580,15 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
   const contextValue: DeviceDataContextType = {
     devicesData,
     devicesList,
+    chargingStations,
+    chargingStationsList,
     devicesHistory,
     updateDeviceData,
+    updateChargingStationData,
     updateDeviceHistory,
     addHistoryPoint,
     getDeviceData,
+    getChargingStationData,
     getDeviceHistory,
     getDeviceStatus,
     refreshDeviceData,

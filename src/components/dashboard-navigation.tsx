@@ -4,7 +4,7 @@ import { useState } from "react"
 import {
   BarChart3,
   Truck,
-  Users,
+  Zap,
   Wrench,
   Route,
   Fuel,
@@ -36,7 +36,7 @@ const tabs = [
   { id: "vehicles" as const, label: "Vehicles", icon: Truck },
   { id: "gps-tracking" as const, label: "GPS Tracking", icon: MapPin },
   { id: "battery-monitor" as const, label: "Battery Monitor", icon: Battery },
-  { id: "drivers" as const, label: "Drivers", icon: Users },
+  { id: "drivers" as const, label: "Charge Node", icon: Zap },
   { id: "maintenance" as const, label: "Maintenance", icon: Wrench },
   { id: "routes" as const, label: "Routes", icon: Route },
   { id: "fuel" as const, label: "Fuel", icon: Fuel },

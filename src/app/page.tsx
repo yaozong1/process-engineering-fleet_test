@@ -8,15 +8,25 @@ import { DashboardNavigation, type NavigationTab } from "@/components/dashboard-
 import { OverviewDashboard } from "@/components/overview-dashboard"
 import { GpsTrackingDashboard } from "@/components/gps-tracking-dashboard"
 import { BatteryMonitorDashboard } from "@/components/battery-monitor-dashboard"
+import ChargingStationDashboard from "@/components/charging-station-dashboard"
+import type { ChargingStation } from "@/components/charging-station-dashboard"
+import { useDeviceData } from "@/contexts/DeviceDataContext"
 
 export default function FleetManagerPage() {
   const router = useRouter()
+  const { updateChargingStationData } = useDeviceData()
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [activeTab, setActiveTab] = useState<NavigationTab>("overview")
   const [currentUser, setCurrentUser] = useState<{userId: string, username: string, role: 'admin'|'user'}|null>(null)
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
   const [remainingMinutes, setRemainingMinutes] = useState(0)
+  
+  // 充电桩相关状态
+  const [chargingStations, setChargingStations] = useState<ChargingStation[]>([])
+  const [selectedStation, setSelectedStation] = useState<ChargingStation | null>(null)
+  const [chargingStationLoading, setChargingStationLoading] = useState(false)
   
   const lastActivityRef = useRef<number>(Date.now())
   const checkIntervalRef = useRef<NodeJS.Timeout>()
@@ -177,6 +187,73 @@ export default function FleetManagerPage() {
     }
   }, [isAuthenticated])
 
+  // 加载充电桩数据
+  useEffect(() => {
+    if (!isAuthenticated || activeTab !== "drivers") return
+    
+    fetchChargingStations()
+    
+    // 设置定期刷新
+    const interval = setInterval(fetchChargingStations, 10000) // 每10秒刷新
+    
+    return () => {
+      clearInterval(interval)
+    }
+  }, [isAuthenticated, activeTab])
+
+  async function fetchChargingStations() {
+    try {
+      setChargingStationLoading(true)
+      
+      const response = await fetch('/api/chargenode')
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          // 转换数据格式为ChargingStation格式
+          const stations: ChargingStation[] = result.data.map((data: any) => ({
+            id: data.stationId,
+            name: `充电桩 ${data.stationId}`,
+            status: data.status,
+            voltage: data.voltage,
+            current: data.current,
+            power: data.power,
+            energy: data.energy,
+            remainingTime: data.remainingTime,
+            temperature: data.temperature,
+            lastUpdate: new Date(data.ts).toLocaleString(),
+            connectorType: data.connectorType,
+            maxPower: data.maxPower,
+            location: data.location
+          }))
+          
+          setChargingStations(stations)
+          
+          // 同时更新DeviceDataContext（可选，用于全局状态共享）
+          stations.forEach(station => {
+            updateChargingStationData(station.id, {
+              stationId: station.id,
+              ts: Date.now(),
+              status: station.status,
+              voltage: station.voltage,
+              current: station.current,
+              power: station.power,
+              energy: station.energy,
+              remainingTime: station.remainingTime,
+              temperature: station.temperature,
+              connectorType: station.connectorType,
+              maxPower: station.maxPower,
+              location: station.location
+            })
+          })
+        }
+      }
+    } catch (error) {
+      console.error('获取充电桩数据失败:', error)
+    } finally {
+      setChargingStationLoading(false)
+    }
+  }
+
   if (checkingAuth) {
     return <div className="p-6 text-gray-600">Loading...</div>
   }
@@ -203,9 +280,38 @@ export default function FleetManagerPage() {
         )
       case "drivers":
         return (
-          <div className="p-8 text-center">
-            <h3 className="text-xl font-semibold mb-2">Drivers Dashboard</h3>
-            <p className="text-gray-600">Driver management features coming soon...</p>
+          <div className="relative">
+            {/* 状态栏 */}
+            <div className="bg-white border-b border-gray-200 px-6 py-3 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      chargingStationLoading ? "bg-yellow-500" : 
+                      chargingStations.length > 0 ? "bg-green-500" : "bg-gray-500"
+                    }`}></div>
+                    <span className="text-sm font-medium">
+                      状态: {chargingStationLoading ? "加载中" : "已连接"}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    数据源: 后端API
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    刷新间隔: 10秒
+                  </div>
+                </div>
+                <div className="text-sm text-gray-600">
+                  充电桩总数: {chargingStations.length}
+                </div>
+              </div>
+            </div>
+            
+            <ChargingStationDashboard
+              stations={chargingStations}
+              selectedStation={selectedStation}
+              onStationSelect={setSelectedStation}
+            />
           </div>
         )
       case "maintenance":

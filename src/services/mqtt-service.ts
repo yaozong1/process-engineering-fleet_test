@@ -39,6 +39,7 @@ class MQTTService {
   // 订阅主题
   private readonly BATTERY_TOPICS = ['fleet/+/battery']
   private readonly STATUS_TOPICS = ['fleet/+/status']
+  private readonly CHARGENODE_TOPICS = ['fleet/chargenode/+']
 
   constructor() {
     this.log('Initializing backend MQTT service...')
@@ -226,7 +227,7 @@ class MQTTService {
     if (!this.client) return
 
     const shareGroup = process.env.MQTT_SHARED_GROUP
-    const baseTopics = [...this.BATTERY_TOPICS, ...this.STATUS_TOPICS]
+    const baseTopics = [...this.BATTERY_TOPICS, ...this.STATUS_TOPICS, ...this.CHARGENODE_TOPICS]
     const allTopics = shareGroup
       ? baseTopics.map(t => `$share/${shareGroup}/${t}`)
       : baseTopics
@@ -248,6 +249,16 @@ class MQTTService {
   private async handleMessage(topic: string, payload: Buffer): Promise<void> {
     try {
       const topicParts = topic.split('/')
+      
+      // 处理充电桩主题 fleet/chargenode/PN-001
+      if (topicParts.length === 3 && topicParts[0] === 'fleet' && topicParts[1] === 'chargenode') {
+        const stationId = topicParts[2] // PN-001, PN-002, etc.
+        console.log(`[MQTT Service] 🔌 Received charging station message: ${topic} from ${stationId}`)
+        await this.handleChargeNodeMessage(stationId, payload)
+        return
+      }
+      
+      // 处理设备主题 fleet/PE-001/battery
       if (topicParts.length !== 3 || topicParts[0] !== 'fleet') {
         console.warn('[MQTT Service] Invalid topic format:', topic)
         return
@@ -391,6 +402,97 @@ class MQTTService {
     } catch (error) {
       this.log(`❌ Error processing battery message from ${deviceId}: ${error}`)
     }
+  }
+
+  /**
+   * 处理充电桩数据消息
+   */
+  private async handleChargeNodeMessage(stationId: string, payload: Buffer): Promise<void> {
+    try {
+      const rawMessage = payload.toString()
+      this.log(`🔌 Raw charging station message from ${stationId}: ${rawMessage.substring(0, 100)}...`)
+      
+      let data
+      try {
+        data = JSON.parse(rawMessage)
+      } catch (jsonError) {
+        this.log(`⚠️ JSON parse failed for charging station ${stationId}: ${jsonError}`)
+        return
+      }
+
+      // 验证充电桩数据格式
+      if (!data || typeof data !== 'object') {
+        this.log(`⚠️ Invalid charging station data format from ${stationId}`)
+        return
+      }
+
+      // 准备存储到Redis的充电桩数据
+      const chargeNodeData = {
+        stationId,
+        ts: data.ts || Date.now(),
+        status: data.status || "offline",
+        voltage: typeof data.voltage === 'number' ? data.voltage : null,
+        current: typeof data.current === 'number' ? data.current : null,
+        power: typeof data.power === 'number' ? data.power : null,
+        energy: typeof data.energy === 'number' ? data.energy : null,
+        remainingTime: typeof data.remainingTime === 'number' ? data.remainingTime : null,
+        temperature: typeof data.temperature === 'number' ? data.temperature : null,
+        connectorType: typeof data.connectorType === 'string' ? data.connectorType : null,
+        maxPower: typeof data.maxPower === 'number' ? data.maxPower : null,
+        location: typeof data.location === 'string' ? data.location : null,
+        faultCode: typeof data.faultCode === 'string' ? data.faultCode : null,
+        faultMessage: typeof data.faultMessage === 'string' ? data.faultMessage : null
+      }
+
+      this.log(`🔌 Charging station ${stationId} data: status=${chargeNodeData.status}, power=${chargeNodeData.power}kW, voltage=${chargeNodeData.voltage}V`)
+
+      // 存储充电桩数据（使用专门的API端点）
+      const storeResult = await this.storeChargeNodeDataWithRetry(chargeNodeData)
+      if (storeResult === 'stored') {
+        this.log(`✅ 存储充电桩 ${stationId} 的数据到Redis (状态: ${chargeNodeData.status}, 功率: ${chargeNodeData.power}kW)`)
+      }
+
+    } catch (error) {
+      this.log(`❌ Error processing charging station message from ${stationId}: ${error}`)
+    }
+  }
+
+  /**
+   * 带重试机制的充电桩数据存储
+   */
+  private async storeChargeNodeDataWithRetry(data: any, maxRetries: number = 5): Promise<'stored' | 'skipped'> {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5秒超时
+
+        const response = await fetch(`${this.getApiBaseUrl()}/api/mqtt-service/chargenode`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data),
+          signal: controller.signal
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          return 'stored' // 成功写入
+        } else {
+          throw new Error(`HTTP ${response.status}`)
+        }
+      } catch (error) {
+        if (i === maxRetries - 1) {
+          this.log(`❌ Failed to store charging station data after ${maxRetries} attempts: ${error}`)
+          return 'skipped'
+        }
+        // 指数退避延迟
+        const delay = Math.min(1000 * Math.pow(2, i), 5000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+    return 'skipped'
   }
 
   /**
