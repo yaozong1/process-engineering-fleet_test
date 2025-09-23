@@ -60,15 +60,29 @@ export function DashboardNavigation({
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className={`w-full flex flex-col items-center justify-center px-2 py-3 rounded-lg text-xs font-medium transition-colors min-h-[90px] ${
+                className={`w-full flex flex-col items-center justify-center px-2 py-3 rounded-lg text-xs font-bold transition-colors min-h-[90px] ${
                   isActive
                     ? "bg-green-100 text-green-700 border-r-4 border-green-500"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    : "hover:bg-gray-100"
                 }`}
                 title={tab.label}
               >
-                <Icon className="w-7 h-7 mb-1" />
-                <span className="text-center leading-tight">{tab.label}</span>
+                <Icon
+                  className={
+                    isActive
+                      ? "w-7 h-7 mb-1 text-green-700"
+                      : "w-7 h-7 mb-1 text-gray-700"
+                  }
+                />
+                <span
+                  className={
+                    isActive
+                      ? "text-center leading-tight text-green-700 font-bold"
+                      : "text-center leading-tight text-gray-400 font-bold"
+                  }
+                >
+                  {tab.label}
+                </span>
               </button>
             );
           })}
