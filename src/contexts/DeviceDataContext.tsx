@@ -35,6 +35,10 @@ export interface DeviceHistoryPoint {
   level: number
   voltage: number
   temperature: number
+  gps?: {
+    lat: number
+    lng: number
+  }
 }
 
 // 设备状态
@@ -163,6 +167,8 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
   
   // 数据变化检测缓存
   const lastDataRef = useRef<Map<string, { soc: number; voltage: number; temperature: number }>>(new Map())
+  // GPS数据缓存
+  const lastGpsRef = useRef<Map<string, { lat: number; lng: number }>>(new Map())
   
   // 检查数据是否有变化
   const hasDataChanged = useCallback((deviceId: string, newData: DeviceData): boolean => {
@@ -175,7 +181,23 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
     const voltageChanged = Math.abs(lastData.voltage - newData.voltage) >= 0.01
     const temperatureChanged = Math.abs(lastData.temperature - newData.temperature) >= 0.1
     
-    return socChanged || voltageChanged || temperatureChanged
+    // GPS坐标变化检测
+    let gpsChanged = false
+    if (newData.gps?.lat !== undefined && newData.gps?.lng !== undefined) {
+      const lastGps = lastGpsRef.current.get(deviceId)
+      if (lastGps) {
+        const latChanged = Math.abs(lastGps.lat - newData.gps.lat) >= 0.002
+        const lngChanged = Math.abs(lastGps.lng - newData.gps.lng) >= 0.002
+        gpsChanged = latChanged || lngChanged
+        
+        console.log(`[DeviceDataContext] GPS检测 ${deviceId}: 上次(${lastGps.lat.toFixed(6)}, ${lastGps.lng.toFixed(6)}) 当前(${newData.gps.lat.toFixed(6)}, ${newData.gps.lng.toFixed(6)}) 变化=${gpsChanged}`)
+      } else {
+        gpsChanged = true // 首次GPS数据
+        console.log(`[DeviceDataContext] 首次GPS数据 ${deviceId}: (${newData.gps.lat.toFixed(6)}, ${newData.gps.lng.toFixed(6)})`)
+      }
+    }
+    
+    return socChanged || voltageChanged || temperatureChanged || gpsChanged
   }, [])
   
   // 更新设备数据
@@ -190,6 +212,14 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
           soc: data.soc,
           voltage: data.voltage,
           temperature: data.temperature
+        })
+      }
+      
+      // 更新GPS缓存
+      if (data.gps?.lat !== undefined && data.gps?.lng !== undefined) {
+        lastGpsRef.current.set(deviceId, {
+          lat: data.gps.lat,
+          lng: data.gps.lng
         })
       }
       
@@ -228,10 +258,25 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
       // 检查是否需要添加新点（数据是否发生了有意义的变化）
       if (currentHistory.length > 0) {
         const lastPoint = currentHistory[currentHistory.length - 1]
-        const isDifferent = 
-          Math.abs(lastPoint.level - point.level) >= 0.1 ||  // 电量变化≥0.1%
-          Math.abs(lastPoint.voltage - point.voltage) >= 0.01 ||  // 电压变化≥0.01V
-          Math.abs(lastPoint.temperature - point.temperature) >= 0.1  // 温度变化≥0.1℃
+        
+        // 基础数据变化检测
+        const levelChanged = Math.abs(lastPoint.level - point.level) >= 0.1  // 电量变化≥0.1%
+        const voltageChanged = Math.abs(lastPoint.voltage - point.voltage) >= 0.01  // 电压变化≥0.01V
+        const temperatureChanged = Math.abs(lastPoint.temperature - point.temperature) >= 0.1  // 温度变化≥0.1℃
+        
+        // GPS坐标变化检测
+        let gpsChanged = false
+        if (point.gps?.lat !== undefined && point.gps?.lng !== undefined) {
+          if (lastPoint.gps?.lat !== undefined && lastPoint.gps?.lng !== undefined) {
+            const latChanged = Math.abs(lastPoint.gps.lat - point.gps.lat) >= 0.002  // 纬度变化≥0.002度
+            const lngChanged = Math.abs(lastPoint.gps.lng - point.gps.lng) >= 0.002  // 经度变化≥0.002度
+            gpsChanged = latChanged || lngChanged
+          } else {
+            gpsChanged = true // 首次GPS数据
+          }
+        }
+        
+        const isDifferent = levelChanged || voltageChanged || temperatureChanged || gpsChanged
         
         if (!isDifferent) {
           console.log(`[DeviceDataContext] 设备 ${deviceId} 数据无明显变化，跳过添加历史点`)
@@ -264,7 +309,11 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
         time: new Date().toISOString(),
         level: data.soc,
         voltage: data.voltage,
-        temperature: data.temperature
+        temperature: data.temperature,
+        gps: data.gps ? {
+          lat: data.gps.lat,
+          lng: data.gps.lng
+        } : undefined
       }
       addHistoryPoint(deviceId, historyPoint)
     }
@@ -378,7 +427,11 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
               time: new Date(item.ts).toISOString(),
               level: item.soc,
               voltage: item.voltage,
-              temperature: item.temperature
+              temperature: item.temperature,
+              gps: item.gps ? {
+                lat: item.gps.lat,
+                lng: item.gps.lng
+              } : undefined
             }))
             
           // 调试：打印处理后的前5条数据时间戳
