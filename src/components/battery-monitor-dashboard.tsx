@@ -66,7 +66,8 @@ export function BatteryMonitorDashboard() {
     stopPolling,
     isPolling,
     refreshAllDevices,
-    refreshDeviceData
+    refreshDeviceData,
+    syncCloudHistory
   } = useDeviceData()
   
   const [selectedVehicle, setSelectedVehicle] = useState<string>("")
@@ -124,7 +125,7 @@ export function BatteryMonitorDashboard() {
     level: item.level || 0,
     voltage: item.voltage || 0,
     temperature: item.temperature || 0
-  })).reverse() : [] // 反转数组让最新的数据在右边
+  })) : [] // 数据已经按时间顺序排列（最旧在前，最新在后）
   
   // 选择第一个设备（如果还没选择）
   useEffect(() => {
@@ -168,19 +169,16 @@ export function BatteryMonitorDashboard() {
   // 同步云端数据
   const syncCloudData = async () => {
     setIsLoading(true)
-    console.log('[BatteryDashboard] 开始手动同步云端数据...')
+    console.log('[BatteryDashboard] 开始手动同步云端数据和历史记录...')
     
     try {
+      // 同步云端历史数据
+      await syncCloudHistory()
+      
       // 刷新所有设备数据
       await refreshAllDevices()
       
-      // 如果有选中的设备，重新加载其数据
-      if (selectedVehicle) {
-        await refreshDeviceData(selectedVehicle)
-        console.log(`[BatteryDashboard] 已刷新设备 ${selectedVehicle} 的数据`)
-      }
-      
-      console.log('[BatteryDashboard] 云端数据同步完成')
+      console.log('[BatteryDashboard] 云端数据和历史记录同步完成')
     } catch (error) {
       console.error('[BatteryDashboard] 同步云端数据失败:', error)
     } finally {

@@ -70,6 +70,7 @@ interface DeviceDataContextType {
   // 数据刷新
   refreshDeviceData: (deviceId: string) => Promise<void>
   refreshAllDevices: () => Promise<void>
+  syncCloudHistory: () => Promise<void>
   
   // 轮询控制
   startPolling: () => void
@@ -92,10 +93,69 @@ interface DeviceDataProviderProps {
 }
 
 export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children }) => {
+  // 从localStorage加载历史数据
+  const loadHistoryFromStorage = useCallback((): Map<string, DeviceHistoryPoint[]> => {
+    if (typeof window === 'undefined') return new Map() // 服务器端渲染时返回空Map
+    
+    try {
+      const stored = localStorage.getItem('deviceHistory')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        const historyMap = new Map<string, DeviceHistoryPoint[]>()
+        Object.entries(parsed).forEach(([deviceId, history]) => {
+          historyMap.set(deviceId, history as DeviceHistoryPoint[])
+        })
+        console.log('[DeviceDataContext] 从localStorage加载历史数据:', historyMap.size, '个设备')
+        return historyMap
+      }
+    } catch (error) {
+      console.error('[DeviceDataContext] 加载历史数据失败:', error)
+    }
+    return new Map()
+  }, [])
+
+  // 生成示例历史数据
+  const generateSampleHistory = useCallback((deviceId: string): DeviceHistoryPoint[] => {
+    const history: DeviceHistoryPoint[] = []
+    const now = new Date()
+    
+    // 生成过去24小时的数据，每30分钟一个点
+    for (let i = 48; i >= 0; i--) {
+      const time = new Date(now.getTime() - i * 30 * 60 * 1000)
+      const baseLevel = 80 - (i * 0.5) // 模拟电量下降
+      const level = Math.max(20, Math.min(100, baseLevel + (Math.random() - 0.5) * 10))
+      
+      history.push({
+        time: time.toISOString(),
+        level: Math.round(level * 10) / 10,
+        voltage: 12.0 + (level / 100) * 0.8 + (Math.random() - 0.5) * 0.2,
+        temperature: 25 + (Math.random() - 0.5) * 15
+      })
+    }
+    
+    return history
+  }, [])
+
+  // 保存历史数据到localStorage
+  const saveHistoryToStorage = useCallback((historyMap: Map<string, DeviceHistoryPoint[]>) => {
+    if (typeof window === 'undefined') return // 服务器端渲染时不执行
+    
+    try {
+      const obj: Record<string, DeviceHistoryPoint[]> = {}
+      historyMap.forEach((history, deviceId) => {
+        obj[deviceId] = history
+      })
+      localStorage.setItem('deviceHistory', JSON.stringify(obj))
+      console.log('[DeviceDataContext] 历史数据已保存到localStorage')
+    } catch (error) {
+      console.error('[DeviceDataContext] 保存历史数据失败:', error)
+    }
+  }, [])
+
   // 设备数据存储
   const [devicesData, setDevicesData] = useState<Map<string, DeviceData>>(new Map())
   const [devicesList, setDevicesList] = useState<string[]>([])
-  const [devicesHistory, setDevicesHistory] = useState<Map<string, DeviceHistoryPoint[]>>(new Map())
+  const [devicesHistory, setDevicesHistory] = useState<Map<string, DeviceHistoryPoint[]>>(() => loadHistoryFromStorage())
   
   // 轮询控制
   const [isPolling, setIsPolling] = useState(false)
@@ -152,11 +212,12 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
     setDevicesHistory(prev => {
       const newMap = new Map(prev)
       newMap.set(deviceId, [...history])
+      saveHistoryToStorage(newMap) // 保存到localStorage
       return newMap
     })
     
     console.log(`[DeviceDataContext] 更新设备 ${deviceId} 历史数据: ${history.length} 条`)
-  }, [])
+  }, [saveHistoryToStorage])
   
   // 添加历史数据点
   const addHistoryPoint = useCallback((deviceId: string, point: DeviceHistoryPoint) => {
@@ -186,10 +247,28 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
       }
       
       newMap.set(deviceId, newHistory)
+      saveHistoryToStorage(newMap) // 保存到localStorage
       console.log(`[DeviceDataContext] 设备 ${deviceId} 添加新历史点`)
       return newMap
     })
-  }, [])
+  }, [saveHistoryToStorage])
+  
+  // 更新设备数据并添加历史记录
+  const updateDeviceDataWithHistory = useCallback((deviceId: string, data: DeviceData) => {
+    // 先更新设备数据
+    updateDeviceData(deviceId, data)
+    
+    // 然后添加历史数据点
+    if (data.soc !== undefined && data.voltage !== undefined && data.temperature !== undefined) {
+      const historyPoint: DeviceHistoryPoint = {
+        time: new Date().toISOString(),
+        level: data.soc,
+        voltage: data.voltage,
+        temperature: data.temperature
+      }
+      addHistoryPoint(deviceId, historyPoint)
+    }
+  }, [updateDeviceData, addHistoryPoint])
   
   // 获取设备数据
   const getDeviceData = useCallback((deviceId: string): DeviceData | undefined => {
@@ -230,18 +309,7 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
         
         // 检查数据是否有变化
         if (hasDataChanged(deviceId, latestData)) {
-          updateDeviceData(deviceId, latestData)
-          
-          // 如果有电池数据，添加到历史记录
-          if (latestData.soc !== undefined && latestData.voltage !== undefined && latestData.temperature !== undefined) {
-            const historyPoint: DeviceHistoryPoint = {
-              time: new Date(latestData.ts).toISOString(),
-              level: latestData.soc,
-              voltage: latestData.voltage,
-              temperature: latestData.temperature
-            }
-            addHistoryPoint(deviceId, historyPoint)
-          }
+          updateDeviceDataWithHistory(deviceId, latestData)
           
           console.log(`[DeviceDataContext] 检测到设备 ${deviceId} 数据变化`)
         } else {
@@ -251,7 +319,7 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
     } catch (error) {
       console.error(`[DeviceDataContext] 刷新设备 ${deviceId} 数据失败:`, error)
     }
-  }, [hasDataChanged, updateDeviceData, addHistoryPoint])
+  }, [hasDataChanged, updateDeviceDataWithHistory])
   
   // 刷新所有设备数据
   const refreshAllDevices = useCallback(async (): Promise<void> => {
@@ -273,6 +341,68 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
       console.error('[DeviceDataContext] 刷新所有设备数据失败:', error)
     }
   }, [refreshDeviceData])
+  
+  // 同步云端历史数据
+  const syncCloudHistory = useCallback(async (): Promise<void> => {
+    try {
+      console.log('[DeviceDataContext] 开始同步云端历史数据...')
+      
+      // 获取设备列表
+      const listResponse = await fetch('/api/telemetry?list=1')
+      if (!listResponse.ok) throw new Error(`获取设备列表失败: ${listResponse.status}`)
+      
+      const listResult = await listResponse.json()
+      const devices = listResult.devices || []
+      
+      // 为每个设备获取历史数据
+      const historyPromises = devices.map(async (deviceId: string) => {
+        try {
+          const response = await fetch(`/api/telemetry?device=${deviceId}&limit=200`)
+          if (!response.ok) throw new Error(`获取设备 ${deviceId} 历史数据失败: ${response.status}`)
+          
+          const result = await response.json()
+          const historyData = result.data || []
+          
+          // 转换为DeviceHistoryPoint格式
+          const deviceHistory: DeviceHistoryPoint[] = historyData
+            .filter((item: any) => item.soc !== undefined && item.voltage !== undefined && item.temperature !== undefined)
+            .map((item: any) => ({
+              time: new Date(item.ts).toISOString(),
+              level: item.soc,
+              voltage: item.voltage,
+              temperature: item.temperature
+            }))
+            .reverse() // 确保时间顺序正确（最旧的在前）
+          
+          console.log(`[DeviceDataContext] 设备 ${deviceId} 同步了 ${deviceHistory.length} 条历史记录`)
+          return { deviceId, history: deviceHistory }
+        } catch (error) {
+          console.error(`[DeviceDataContext] 同步设备 ${deviceId} 历史数据失败:`, error)
+          return { deviceId, history: [] }
+        }
+      })
+      
+      const results = await Promise.all(historyPromises)
+      
+      // 更新历史数据
+      const newHistoryMap = new Map<string, DeviceHistoryPoint[]>()
+      results.forEach(({ deviceId, history }) => {
+        if (history.length > 0) {
+          newHistoryMap.set(deviceId, history)
+        }
+      })
+      
+      // 覆盖本地历史数据
+      setDevicesHistory(newHistoryMap)
+      saveHistoryToStorage(newHistoryMap)
+      
+      const totalSynced = results.reduce((sum, result) => sum + result.history.length, 0)
+      console.log(`[DeviceDataContext] 云端历史数据同步完成，共同步 ${totalSynced} 条记录`)
+      
+    } catch (error) {
+      console.error('[DeviceDataContext] 同步云端历史数据失败:', error)
+    }
+  }, [saveHistoryToStorage])
   
   // 开始轮询
   const startPolling = useCallback(() => {
@@ -319,6 +449,7 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({ children
     getDeviceStatus,
     refreshDeviceData,
     refreshAllDevices,
+    syncCloudHistory,
     startPolling,
     stopPolling,
     isPolling
