@@ -22,7 +22,13 @@ type MapProps = {
   onVehicleSelect: (vehicle: Vehicle | null) => void;
   initialCenter: [number, number];
   initialZoom?: number;
-  mapMode?: "normal" | "grayscale";
+  mapMode?:
+    | "normal"
+    | "grayscale"
+    | "positron"
+    | "dark"
+    | "toner"
+    | "toner-lite";
 };
 
 const MapComponent = dynamic<MapProps>(() => import("./map-component"), {
@@ -90,7 +96,9 @@ export function GpsTrackingDashboard() {
     null
   );
   const [initialZoom, setInitialZoom] = useState<number | null>(null);
-  const [mapMode, setMapMode] = useState<"normal" | "grayscale">("normal");
+  const [mapMode, setMapMode] = useState<
+    "normal" | "grayscale" | "positron" | "dark" | "toner" | "toner-lite"
+  >("normal");
 
   const kphToMph = (kph?: number) =>
     typeof kph === "number" && Number.isFinite(kph)
@@ -273,26 +281,27 @@ export function GpsTrackingDashboard() {
             <RefreshCw className="w-4 h-4" />
             Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const newMode = mapMode === "normal" ? "grayscale" : "normal";
-              console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
-              setMapMode(newMode);
-            }}
-            className={`flex items-center gap-2 ${
-              mapMode === "grayscale"
-                ? "bg-gray-200 border-gray-400 text-gray-800"
-                : "bg-blue-50 border-blue-300 text-blue-700"
-            }`}
-            title={`Switch to ${
-              mapMode === "normal" ? "grayscale" : "normal"
-            } map`}
-          >
-            <Palette className="w-4 h-4" />
-            {mapMode === "normal" ? "切换灰色模式" : "切换彩色模式"}
-          </Button>
+
+          {/* 地图样式选择下拉菜单 */}
+          <div className="relative">
+            <select
+              value={mapMode}
+              onChange={(e) => {
+                const newMode = e.target.value as typeof mapMode;
+                console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
+                setMapMode(newMode);
+              }}
+              className="appearance-none bg-white border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="normal">标准彩色</option>
+              <option value="grayscale">CartoDB Light</option>
+              <option value="positron">CartoDB Positron</option>
+              <option value="dark">CartoDB Dark</option>
+              <option value="toner">Stamen Toner</option>
+              <option value="toner-lite">Stamen Toner Lite</option>
+            </select>
+            <Palette className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          </div>
           <Button
             variant={isLiveTracking ? "default" : "outline"}
             size="sm"

@@ -23,7 +23,13 @@ interface MapComponentProps {
   onVehicleSelect: (vehicle: Vehicle) => void;
   initialCenter?: [number, number];
   initialZoom?: number;
-  mapMode?: "normal" | "grayscale";
+  mapMode?:
+    | "normal"
+    | "grayscale"
+    | "positron"
+    | "dark"
+    | "toner"
+    | "toner-lite";
 }
 
 // Red circle icons (normal & selected)
@@ -82,24 +88,66 @@ export default function MapComponent({
 
   // 根据mapMode选择不同的瓦片图层
   const getTileLayer = () => {
-    if (mapMode === "grayscale") {
-      // 使用灰度地图瓦片 - CartoDB Light
-      return {
-        url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 19,
-      };
-    } else {
-      // 使用彩色地图瓦片 - OpenStreetMap
-      return {
-        url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        subdomains: "abc",
-        maxZoom: 19,
-      };
+    switch (mapMode) {
+      case "grayscale":
+        // CartoDB Light - 干净的浅灰色地图
+        return {
+          url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: "abcd",
+          maxZoom: 19,
+        };
+
+      case "positron":
+        // CartoDB Positron - 极简无标签灰色地图（最接近您的截图）
+        return {
+          url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: "abcd",
+          maxZoom: 19,
+        };
+
+      case "dark":
+        // CartoDB Dark - 深色主题地图
+        return {
+          url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: "abcd",
+          maxZoom: 19,
+        };
+
+      case "toner":
+        // Stamen Toner - 高对比度黑白地图
+        return {
+          url: "https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}{r}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://stamen.com/" target="_blank">Stamen Design</a>',
+          subdomains: "",
+          maxZoom: 20,
+        };
+
+      case "toner-lite":
+        // Stamen Toner Lite - 淡雅灰度地图
+        return {
+          url: "https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}{r}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> &copy; <a href="https://stamen.com/" target="_blank">Stamen Design</a>',
+          subdomains: "",
+          maxZoom: 20,
+        };
+
+      default:
+        // OpenStreetMap Standard - 标准彩色地图
+        return {
+          url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          subdomains: "abc",
+          maxZoom: 19,
+        };
     }
   };
 
