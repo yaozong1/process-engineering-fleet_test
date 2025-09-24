@@ -1,3 +1,5 @@
+const path = require("path");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // SSR 模式: 移除 static export 相关配置
@@ -8,37 +10,40 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
 
+  // 避免 Next 误判 monorepo 根目录
+  outputFileTracingRoot: path.join(__dirname),
+
   // 图片优化配置
   images: {
     // 保留远程图片白名单; 现在使用 Next Image SSR (仍无需优化服务亦可保持 unoptimized)
     unoptimized: true,
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'source.unsplash.com',
+        protocol: "https",
+        hostname: "source.unsplash.com",
       },
       {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
+        protocol: "https",
+        hostname: "images.unsplash.com",
       },
       {
-        protocol: 'https',
-        hostname: 'ext.same-assets.com',
+        protocol: "https",
+        hostname: "ext.same-assets.com",
       },
       {
-        protocol: 'https',
-        hostname: 'ugc.same-assets.com',
+        protocol: "https",
+        hostname: "ugc.same-assets.com",
       },
       {
-        protocol: 'https',
-        hostname: 'cdnjs.cloudflare.com',
-      }
+        protocol: "https",
+        hostname: "cdnjs.cloudflare.com",
+      },
     ],
   },
 
   // 编译配置
   compiler: {
-    removeConsole: process.env.NODE_ENV === 'production',
+    removeConsole: process.env.NODE_ENV === "production",
   },
 
   // 压缩配置
@@ -51,8 +56,14 @@ const nextConfig = {
   // Webpack configuration for Leaflet
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals = [...(config.externals || []), 'leaflet'];
+      config.externals = [...(config.externals || []), "leaflet"];
     }
+    // Ensure '@' alias resolves to 'src' for both server and client builds
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      "@": path.resolve(__dirname, "src"),
+    };
     return config;
   },
 };

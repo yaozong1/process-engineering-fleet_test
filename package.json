@@ -3,48 +3,44 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "next dev -H 0.0.0.0 --turbopack",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start",
     "lint": "bunx tsc --noEmit && next lint",
-    "format": "bunx biome format --write"
+    "format": "bunx biome format --write",
+    "cleanup:tracking": "node -e \"require('ts-node/register/transpile-only'); require('./scripts/cleanup-tracking-keys.ts')\""
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.10",
     "@types/leaflet": "^1.9.20",
-    "@types/mqtt": "^0.0.34",
-    "@upstash/redis": "^1.35.3",
+    "@upstash/redis": "^1.35.4",
     "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dotenv": "^17.2.2",
     "jsonwebtoken": "^9.0.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.543.0",
     "mqtt": "^5.14.1",
-    "next": "^15.3.2",
-    "next-auth": "^4.24.11",
+    "next": "15.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
     "recharts": "^3.2.0",
-    "same-runtime": "^0.0.1",
     "tailwind-merge": "^3.3.0",
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@eslint/eslintrc": "^3.3.1",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.50",
     "@types/react": "^18.3.22",
     "@types/react-dom": "^18.3.7",
     "eslint": "^9.27.0",
-    "eslint-config-next": "15.1.7",
+    "eslint-config-next": "15.5.3",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.2"
   }
 }
