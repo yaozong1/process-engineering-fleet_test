@@ -379,7 +379,7 @@ export function GpsTrackingDashboard() {
               }}
               className="appearance-none bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-lg"
             >
-              <option value="normal">标准彩色</option>
+              <option value="normal">Standard</option>
               <option value="grayscale">CartoDB Light</option>
               <option value="positron">CartoDB Positron</option>
               <option value="dark">CartoDB Dark</option>
