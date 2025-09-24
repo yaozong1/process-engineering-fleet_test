@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Truck,
   Palette,
+  Search,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useDeviceData } from "@/contexts/DeviceDataContext";
@@ -99,6 +100,8 @@ export function GpsTrackingDashboard() {
   const [mapMode, setMapMode] = useState<
     "normal" | "grayscale" | "positron" | "dark" | "toner" | "toner-lite"
   >("normal");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const kphToMph = (kph?: number) =>
     typeof kph === "number" && Number.isFinite(kph)
@@ -249,6 +252,35 @@ export function GpsTrackingDashboard() {
     await refreshAllDevices();
   };
 
+  const handleSearch = (query: string) => {
+    if (!query.trim()) {
+      setSelectedVehicle(null);
+      return;
+    }
+
+    const foundVehicle = vehicles.find(
+      (v) =>
+        v.name.toLowerCase().includes(query.toLowerCase()) ||
+        v.id.toLowerCase().includes(query.toLowerCase())
+    );
+
+    if (foundVehicle) {
+      setSelectedVehicle(foundVehicle);
+      // 如果找到车辆且有有效位置，可以考虑移动地图中心到该车辆
+      if (foundVehicle.lat !== 0 && foundVehicle.lng !== 0) {
+        console.log(
+          "[GPS] 搜索到车辆:",
+          foundVehicle.name,
+          "位置:",
+          foundVehicle.lat,
+          foundVehicle.lng
+        );
+      }
+    } else {
+      console.log("[GPS] 未找到匹配的车辆:", query);
+    }
+  };
+
   return (
     <div className="-mx-6 -mt-6 -mb-6">
       {/* 全屏地图容器 */}
@@ -284,6 +316,48 @@ export function GpsTrackingDashboard() {
 
         {/* 悬浮的控制按钮 - 右上角 */}
         <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          {/* 搜索框 */}
+          <div className="relative">
+            <div className="flex items-center">
+              <input
+                type="text"
+                placeholder="Search vehicle..."
+                value={searchQuery}
+                onChange={(e) => {
+                  const query = e.target.value;
+                  setSearchQuery(query);
+                  handleSearch(query);
+                }}
+                className={`transition-all duration-300 bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg pl-10 pr-3 py-2 text-sm font-medium text-gray-700 hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-lg ${
+                  isSearchOpen ? "w-48" : "w-10"
+                } ${
+                  isSearchOpen ? "" : "text-transparent placeholder-transparent"
+                }`}
+                onFocus={() => setIsSearchOpen(true)}
+                onBlur={() => {
+                  if (!searchQuery.trim()) {
+                    setIsSearchOpen(false);
+                  }
+                }}
+              />
+              <Search
+                className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                onClick={() => {
+                  if (!isSearchOpen) {
+                    setIsSearchOpen(true);
+                    // 聚焦到搜索框
+                    setTimeout(() => {
+                      const input = document.querySelector(
+                        'input[placeholder="Search vehicle..."]'
+                      ) as HTMLInputElement;
+                      input?.focus();
+                    }, 100);
+                  }
+                }}
+              />
+            </div>
+          </div>
+
           <Button
             variant="outline"
             size="sm"
