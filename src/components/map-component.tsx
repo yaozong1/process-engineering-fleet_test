@@ -155,10 +155,10 @@ export default function MapComponent({
 
   return (
     <div
-      className="rounded-lg overflow-hidden mx-[5px] mb-[25px]"
+      className="overflow-hidden"
       style={{
-        aspectRatio: "18 / 9",
-        width: "calc(100% - 10px)",
+        height: "100%",
+        width: "100%",
         // 如果使用CSS滤镜作为备选方案
         filter: mapMode === "grayscale" ? "none" : "none", // 我们使用不同的瓦片图层，所以不需要CSS滤镜
       }}
