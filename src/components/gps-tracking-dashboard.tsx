@@ -340,7 +340,7 @@ export function GpsTrackingDashboard() {
         </div>
 
         {/* 悬浮的车辆列表 - 左侧 */}
-        <div className="absolute top-4 left-4 z-[1000] w-80">
+        <div className="absolute top-28 left-4 z-[1000] w-80">
           <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg">
             <CardHeader
               className="cursor-pointer pt-2.5 px-2.5 pb-1"
