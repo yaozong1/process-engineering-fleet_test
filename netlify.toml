@@ -8,6 +8,8 @@
 [build.environment]
   NODE_VERSION = "20"
   NEXT_TELEMETRY_DISABLED = "1"
+  # 确保 Netlify 安装 devDependencies（包含 typescript）
+  NPM_CONFIG_PRODUCTION = "false"
   # 已移除错误的 NPM_FLAGS (之前指向 /dev/null 导致 npm mkdir 失败)
 
 [[plugins]]
