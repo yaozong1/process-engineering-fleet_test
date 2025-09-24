@@ -341,9 +341,9 @@ export function GpsTrackingDashboard() {
 
         {/* 悬浮的车辆列表 - 左侧 */}
         <div className="absolute top-28 left-4 z-[1000] w-80">
-          <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg">
+          <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg flex flex-col">
             <CardHeader
-              className="cursor-pointer pt-2.5 px-2.5 pb-1"
+              className="cursor-pointer pt-2.5 px-2.5 pb-1 flex-shrink-0"
               onClick={() => setSelectedVehicle(null)}
               title={selectedVehicle ? "Click header to deselect vehicle" : ""}
             >
@@ -353,7 +353,8 @@ export function GpsTrackingDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent
-              className="max-h-[calc(100vh-120px)] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
+              className="overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
+              style={{ maxHeight: "calc(7 * 128px + 48px)" }}
               onClick={(e) => {
                 // 点击空白处取消选中
                 if (e.target === e.currentTarget) {
@@ -447,19 +448,6 @@ export function GpsTrackingDashboard() {
                     <p className="text-xs text-gray-500 mt-1">
                       Waiting for device connection...
                     </p>
-                  </div>
-                )}
-
-                {/* 额外的空白区域，便于点击取消选中 */}
-                {selectedVehicle && vehicles.length > 0 && (
-                  <div
-                    className="h-16 flex items-center justify-center text-gray-400 text-xs italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedVehicle(null);
-                    }}
-                  >
-                    Click here to deselect vehicle
                   </div>
                 )}
               </div>
