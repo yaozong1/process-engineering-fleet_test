@@ -315,7 +315,7 @@ export function GpsTrackingDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Vehicle List */}
         <Card>
           <CardHeader
@@ -329,7 +329,7 @@ export function GpsTrackingDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent
-            className="h-[600px] overflow-y-auto cursor-pointer"
+            className="h-[1100px] overflow-y-auto cursor-pointer"
             onClick={(e) => {
               // 点击空白处取消选中
               if (e.target === e.currentTarget) {
@@ -438,7 +438,7 @@ export function GpsTrackingDashboard() {
         </Card>
 
         {/* Map */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-4">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
