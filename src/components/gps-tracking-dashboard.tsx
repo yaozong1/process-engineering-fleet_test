@@ -315,7 +315,7 @@ export function GpsTrackingDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_6.18fr] gap-6">
         {/* Vehicle List */}
         <Card>
           <CardHeader
@@ -438,7 +438,7 @@ export function GpsTrackingDashboard() {
         </Card>
 
         {/* Map */}
-        <Card className="lg:col-span-4">
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
