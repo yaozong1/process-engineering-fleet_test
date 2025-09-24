@@ -250,11 +250,11 @@ export function GpsTrackingDashboard() {
   };
 
   return (
-    <div className="relative h-screen">
+    <div className="-mx-6 -mt-6 -mb-6">
       {/* 全屏地图容器 */}
-      <div className="absolute inset-0">
-        <Card className="h-full border-none rounded-none">
-          <CardContent className="p-0 h-full">
+      <div className="relative w-full h-[calc(100vh-64px)]">
+        <Card className="h-full w-full border-none rounded-none shadow-none">
+          <CardContent className="p-0 h-full w-full">
             <div className="w-full h-full">
               {initialCenter ? (
                 <MapComponent
@@ -281,191 +281,191 @@ export function GpsTrackingDashboard() {
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      {/* 悬浮的控制按钮 - 右上角 */}
-      <div className="absolute top-4 right-4 z-[1000] flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 shadow-lg"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </Button>
-
-        {/* 地图样式选择下拉菜单 */}
-        <div className="relative">
-          <select
-            value={mapMode}
-            onChange={(e) => {
-              const newMode = e.target.value as typeof mapMode;
-              console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
-              setMapMode(newMode);
-            }}
-            className="appearance-none bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-lg"
+        {/* 悬浮的控制按钮 - 右上角 */}
+        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 shadow-lg"
           >
-            <option value="normal">标准彩色</option>
-            <option value="grayscale">CartoDB Light</option>
-            <option value="positron">CartoDB Positron</option>
-            <option value="dark">CartoDB Dark</option>
-            <option value="toner">Stamen Toner</option>
-            <option value="toner-lite">Stamen Toner Lite</option>
-          </select>
-          <Palette className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </Button>
+
+          {/* 地图样式选择下拉菜单 */}
+          <div className="relative">
+            <select
+              value={mapMode}
+              onChange={(e) => {
+                const newMode = e.target.value as typeof mapMode;
+                console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
+                setMapMode(newMode);
+              }}
+              className="appearance-none bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-lg"
+            >
+              <option value="normal">标准彩色</option>
+              <option value="grayscale">CartoDB Light</option>
+              <option value="positron">CartoDB Positron</option>
+              <option value="dark">CartoDB Dark</option>
+              <option value="toner">Stamen Toner</option>
+              <option value="toner-lite">Stamen Toner Lite</option>
+            </select>
+            <Palette className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          </div>
+
+          <Button
+            variant={isLiveTracking ? "default" : "outline"}
+            size="sm"
+            onClick={() => setIsLiveTracking(!isLiveTracking)}
+            className={`flex items-center gap-2 shadow-lg ${
+              isLiveTracking
+                ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                : "bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 text-gray-700"
+            }`}
+          >
+            {isLiveTracking ? (
+              <>
+                <Zap className="w-4 h-4" />
+                Live Tracking
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Paused
+              </>
+            )}
+          </Button>
         </div>
 
-        <Button
-          variant={isLiveTracking ? "default" : "outline"}
-          size="sm"
-          onClick={() => setIsLiveTracking(!isLiveTracking)}
-          className={`flex items-center gap-2 shadow-lg ${
-            isLiveTracking
-              ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
-              : "bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 text-gray-700"
-          }`}
-        >
-          {isLiveTracking ? (
-            <>
-              <Zap className="w-4 h-4" />
-              Live Tracking
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Paused
-            </>
-          )}
-        </Button>
-      </div>
-
-      {/* 悬浮的车辆列表 - 左侧 */}
-      <div className="absolute top-4 left-4 z-[1000] w-80">
-        <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg">
-          <CardHeader
-            className="cursor-pointer pt-2.5 px-2.5 pb-1"
-            onClick={() => setSelectedVehicle(null)}
-            title={selectedVehicle ? "Click header to deselect vehicle" : ""}
-          >
-            <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-700">
-              <Truck className="w-4 h-4" />
-              Vehicle List
-            </CardTitle>
-          </CardHeader>
-          <CardContent
-            className="max-h-[calc(100vh-120px)] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
-            onClick={(e) => {
-              // 点击空白处取消选中
-              if (e.target === e.currentTarget) {
-                setSelectedVehicle(null);
-              }
-            }}
-            title={
-              selectedVehicle ? "Click blank area to deselect vehicle" : ""
-            }
-          >
-            <div
-              className="space-y-2"
+        {/* 悬浮的车辆列表 - 左侧 */}
+        <div className="absolute top-4 left-4 z-[1000] w-80">
+          <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg">
+            <CardHeader
+              className="cursor-pointer pt-2.5 px-2.5 pb-1"
+              onClick={() => setSelectedVehicle(null)}
+              title={selectedVehicle ? "Click header to deselect vehicle" : ""}
+            >
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Truck className="w-4 h-4" />
+                Vehicle List
+              </CardTitle>
+            </CardHeader>
+            <CardContent
+              className="max-h-[calc(100vh-120px)] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
               onClick={(e) => {
                 // 点击空白处取消选中
                 if (e.target === e.currentTarget) {
                   setSelectedVehicle(null);
                 }
               }}
+              title={
+                selectedVehicle ? "Click blank area to deselect vehicle" : ""
+              }
             >
-              {vehicles.map((vehicle) => (
-                <div
-                  key={vehicle.id}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                    selectedVehicle?.id === vehicle.id
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                  onClick={(e) => {
-                    e.stopPropagation(); // 防止冒泡到父容器
-                    setSelectedVehicle(vehicle);
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-3 h-3 rounded-full ${getStatusColor(
-                          vehicle.status
-                        )}`}
-                      />
-                      <span className="font-semibold text-sm">
-                        {vehicle.name}
-                      </span>
-                    </div>
-                    <Badge
-                      variant={getStatusBadgeVariant(vehicle.status)}
-                      className="text-xs"
-                    >
-                      {vehicle.status}
-                    </Badge>
-                  </div>
-                  <div className="text-xs text-gray-600 space-y-1">
-                    <div className="flex justify-between">
-                      <span>Battery:</span>
-                      <span
-                        className={`font-medium ${
-                          vehicle.battery > 50
-                            ? "text-green-600"
-                            : vehicle.battery > 20
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {vehicle.battery}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Speed:</span>
-                      <span>{vehicle.speed} mph</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Location:</span>
-                      <span>
-                        {vehicle.lat !== 0 && vehicle.lng !== 0
-                          ? `${vehicle.lat.toFixed(4)}, ${vehicle.lng.toFixed(
-                              4
-                            )}`
-                          : "Unknown"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Updated:</span>
-                      <span>{vehicle.lastUpdate}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {vehicles.length === 0 && (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600 text-sm">No vehicle data</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Waiting for device connection...
-                  </p>
-                </div>
-              )}
-
-              {/* 额外的空白区域，便于点击取消选中 */}
-              {selectedVehicle && vehicles.length > 0 && (
-                <div
-                  className="h-16 flex items-center justify-center text-gray-400 text-xs italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
+              <div
+                className="space-y-2"
+                onClick={(e) => {
+                  // 点击空白处取消选中
+                  if (e.target === e.currentTarget) {
                     setSelectedVehicle(null);
-                  }}
-                >
-                  Click here to deselect vehicle
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  }
+                }}
+              >
+                {vehicles.map((vehicle) => (
+                  <div
+                    key={vehicle.id}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                      selectedVehicle?.id === vehicle.id
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation(); // 防止冒泡到父容器
+                      setSelectedVehicle(vehicle);
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-3 h-3 rounded-full ${getStatusColor(
+                            vehicle.status
+                          )}`}
+                        />
+                        <span className="font-semibold text-sm">
+                          {vehicle.name}
+                        </span>
+                      </div>
+                      <Badge
+                        variant={getStatusBadgeVariant(vehicle.status)}
+                        className="text-xs"
+                      >
+                        {vehicle.status}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Battery:</span>
+                        <span
+                          className={`font-medium ${
+                            vehicle.battery > 50
+                              ? "text-green-600"
+                              : vehicle.battery > 20
+                              ? "text-yellow-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {vehicle.battery}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Speed:</span>
+                        <span>{vehicle.speed} mph</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Location:</span>
+                        <span>
+                          {vehicle.lat !== 0 && vehicle.lng !== 0
+                            ? `${vehicle.lat.toFixed(4)}, ${vehicle.lng.toFixed(
+                                4
+                              )}`
+                            : "Unknown"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Updated:</span>
+                        <span>{vehicle.lastUpdate}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {vehicles.length === 0 && (
+                  <div className="text-center py-8">
+                    <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600 text-sm">No vehicle data</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Waiting for device connection...
+                    </p>
+                  </div>
+                )}
+
+                {/* 额外的空白区域，便于点击取消选中 */}
+                {selectedVehicle && vehicles.length > 0 && (
+                  <div
+                    className="h-16 flex items-center justify-center text-gray-400 text-xs italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedVehicle(null);
+                    }}
+                  >
+                    Click here to deselect vehicle
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
