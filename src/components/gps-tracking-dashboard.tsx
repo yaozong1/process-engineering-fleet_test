@@ -228,14 +228,6 @@ export function GpsTrackingDashboard() {
     }
   }, [isLiveTracking, startPolling, stopPolling]);
 
-  const activeVehicles = vehicles.filter((v) => v.status === "active").length;
-  const totalVehicles = vehicles.length;
-  const averageBattery = vehicles.length
-    ? Math.round(
-        vehicles.reduce((sum, v) => sum + v.battery, 0) / vehicles.length
-      )
-    : 0;
-
   // 允许红点位置更新，但使用深度比较避免不必要的地图重新渲染
   const mapVehicles = useMemo(() => {
     const filtered = vehicles.filter(
@@ -321,80 +313,6 @@ export function GpsTrackingDashboard() {
             )}
           </Button>
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  Active Vehicles
-                </p>
-                <p className="text-2xl font-bold">
-                  {activeVehicles}/{totalVehicles}
-                </p>
-              </div>
-              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                <Truck className="w-4 h-4 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Avg Battery</p>
-                <p className="text-2xl font-bold">{averageBattery}%</p>
-              </div>
-              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Zap className="w-4 h-4 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Data Status</p>
-                <p className="text-2xl font-bold">
-                  {isPolling ? "Live" : "Paused"}
-                </p>
-              </div>
-              <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  isPolling ? "bg-green-100" : "bg-gray-100"
-                }`}
-              >
-                <Navigation
-                  className={`w-4 h-4 ${
-                    isPolling ? "text-green-600" : "text-gray-600"
-                  }`}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">
-                  Online Devices
-                </p>
-                <p className="text-2xl font-bold">
-                  {vehicles.filter((v) => v.status !== "offline").length}
-                </p>
-              </div>
-              <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                <MapPin className="w-4 h-4 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
