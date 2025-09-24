@@ -7,7 +7,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  # 已移除错误的 NPM_FLAGS (之前指向 /dev/null 导致 npm mkdir 失败)
+  NPM_CONFIG_PRODUCTION = "false"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
