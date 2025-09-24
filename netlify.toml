@@ -7,10 +7,27 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
   # 已移除错误的 NPM_FLAGS (之前指向 /dev/null 导致 npm mkdir 失败)
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Netlify Functions bundling for Next API routes
+[functions]
+  node_bundler = "esbuild"
+  # 这些依赖在函数运行时以外部模块形式引入，避免打包不完整
+  external_node_modules = [
+    "mqtt",
+    "jsonwebtoken",
+    "bcryptjs",
+    "@upstash/redis"
+  ]
+
+# 可选：为所有 API 提高超时/内存（按需开启）
+#[functions."api/*"]
+## timeout = 15
+## memory = 256
 
 # Security headers
 [[headers]]
