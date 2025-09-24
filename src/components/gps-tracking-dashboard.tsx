@@ -312,17 +312,14 @@ export function GpsTrackingDashboard() {
         {/* Vehicle List */}
         <Card>
           <CardHeader
-            className="cursor-pointer"
+            className="cursor-pointer pt-2.5 px-2.5 pb-0"
             onClick={() => setSelectedVehicle(null)}
             title={selectedVehicle ? "Click header to deselect vehicle" : ""}
           >
-            <CardTitle className="flex items-center gap-2">
-              <Truck className="w-5 h-5" />
-              Vehicle List
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2"></CardTitle>
           </CardHeader>
           <CardContent
-            className="h-[1100px] overflow-y-auto cursor-pointer"
+            className="h-[1100px] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
             onClick={(e) => {
               // 点击空白处取消选中
               if (e.target === e.currentTarget) {
