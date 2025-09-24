@@ -250,76 +250,111 @@ export function GpsTrackingDashboard() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* 地图模式切换入口仅保留在 Header 的 Refresh 旁边 */}
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div></div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            className="flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </Button>
-
-          {/* 地图样式选择下拉菜单 */}
-          <div className="relative">
-            <select
-              value={mapMode}
-              onChange={(e) => {
-                const newMode = e.target.value as typeof mapMode;
-                console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
-                setMapMode(newMode);
-              }}
-              className="appearance-none bg-white border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="normal">标准彩色</option>
-              <option value="grayscale">CartoDB Light</option>
-              <option value="positron">CartoDB Positron</option>
-              <option value="dark">CartoDB Dark</option>
-              <option value="toner">Stamen Toner</option>
-              <option value="toner-lite">Stamen Toner Lite</option>
-            </select>
-            <Palette className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
-          <Button
-            variant={isLiveTracking ? "default" : "outline"}
-            size="sm"
-            onClick={() => setIsLiveTracking(!isLiveTracking)}
-            className="flex items-center gap-2"
-          >
-            {isLiveTracking ? (
-              <>
-                <Zap className="w-4 h-4" />
-                Live Tracking
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                Paused
-              </>
-            )}
-          </Button>
-        </div>
+    <div className="relative h-screen">
+      {/* 全屏地图容器 */}
+      <div className="absolute inset-0">
+        <Card className="h-full border-none rounded-none">
+          <CardContent className="p-0 h-full">
+            <div className="w-full h-full">
+              {initialCenter ? (
+                <MapComponent
+                  vehicles={mapVehicles}
+                  selectedVehicle={selectedVehicle}
+                  onVehicleSelect={setSelectedVehicle}
+                  initialCenter={initialCenter}
+                  initialZoom={initialZoom ?? undefined}
+                  mapMode={mapMode}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full bg-gray-100">
+                  <div className="text-center">
+                    <MapPin className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600">Waiting for GPS data...</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {vehicles.length === 0
+                        ? "No device data"
+                        : "Waiting for location info"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_6.18fr] gap-6">
-        {/* Vehicle List */}
-        <Card>
+      {/* 悬浮的控制按钮 - 右上角 */}
+      <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 shadow-lg"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </Button>
+
+        {/* 地图样式选择下拉菜单 */}
+        <div className="relative">
+          <select
+            value={mapMode}
+            onChange={(e) => {
+              const newMode = e.target.value as typeof mapMode;
+              console.log("[GPS] 切换地图模式:", mapMode, "->", newMode);
+              setMapMode(newMode);
+            }}
+            className="appearance-none bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-lg"
+          >
+            <option value="normal">标准彩色</option>
+            <option value="grayscale">CartoDB Light</option>
+            <option value="positron">CartoDB Positron</option>
+            <option value="dark">CartoDB Dark</option>
+            <option value="toner">Stamen Toner</option>
+            <option value="toner-lite">Stamen Toner Lite</option>
+          </select>
+          <Palette className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        </div>
+
+        <Button
+          variant={isLiveTracking ? "default" : "outline"}
+          size="sm"
+          onClick={() => setIsLiveTracking(!isLiveTracking)}
+          className={`flex items-center gap-2 shadow-lg ${
+            isLiveTracking
+              ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+              : "bg-white/90 backdrop-blur-sm border-gray-200/50 hover:bg-white/95 text-gray-700"
+          }`}
+        >
+          {isLiveTracking ? (
+            <>
+              <Zap className="w-4 h-4" />
+              Live Tracking
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-4 h-4" />
+              Paused
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* 悬浮的车辆列表 - 左侧 */}
+      <div className="absolute top-4 left-4 z-[1000] w-80">
+        <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg">
           <CardHeader
-            className="cursor-pointer pt-2.5 px-2.5 pb-0"
+            className="cursor-pointer pt-2.5 px-2.5 pb-1"
             onClick={() => setSelectedVehicle(null)}
             title={selectedVehicle ? "Click header to deselect vehicle" : ""}
           >
-            <CardTitle className="flex items-center gap-2"></CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <Truck className="w-4 h-4" />
+              Vehicle List
+            </CardTitle>
           </CardHeader>
           <CardContent
-            className="h-[1100px] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
+            className="max-h-[calc(100vh-120px)] overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
             onClick={(e) => {
               // 点击空白处取消选中
               if (e.target === e.currentTarget) {
@@ -331,7 +366,7 @@ export function GpsTrackingDashboard() {
             }
           >
             <div
-              className="space-y-4"
+              className="space-y-2"
               onClick={(e) => {
                 // 点击空白处取消选中
                 if (e.target === e.currentTarget) {
@@ -359,13 +394,18 @@ export function GpsTrackingDashboard() {
                           vehicle.status
                         )}`}
                       />
-                      <span className="font-semibold">{vehicle.name}</span>
+                      <span className="font-semibold text-sm">
+                        {vehicle.name}
+                      </span>
                     </div>
-                    <Badge variant={getStatusBadgeVariant(vehicle.status)}>
+                    <Badge
+                      variant={getStatusBadgeVariant(vehicle.status)}
+                      className="text-xs"
+                    >
                       {vehicle.status}
                     </Badge>
                   </div>
-                  <div className="text-sm text-gray-600 space-y-1">
+                  <div className="text-xs text-gray-600 space-y-1">
                     <div className="flex justify-between">
                       <span>Battery:</span>
                       <span
@@ -404,8 +444,8 @@ export function GpsTrackingDashboard() {
               {vehicles.length === 0 && (
                 <div className="text-center py-8">
                   <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600">No vehicle data</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-gray-600 text-sm">No vehicle data</p>
+                  <p className="text-xs text-gray-500 mt-1">
                     Waiting for device connection...
                   </p>
                 </div>
@@ -414,53 +454,13 @@ export function GpsTrackingDashboard() {
               {/* 额外的空白区域，便于点击取消选中 */}
               {selectedVehicle && vehicles.length > 0 && (
                 <div
-                  className="h-20 flex items-center justify-center text-gray-400 text-sm italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
+                  className="h-16 flex items-center justify-center text-gray-400 text-xs italic cursor-pointer hover:bg-gray-50 rounded-lg transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedVehicle(null);
                   }}
                 >
                   Click here to deselect vehicle
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Map */}
-        <Card>
-          <CardHeader className="p-1">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2"></CardTitle>
-
-              {/* 保留简洁标题，不再放置额外切换按钮 */}
-            </div>
-          </CardHeader>
-          <CardContent className="p-1">
-            <div
-              className="w-full rounded-lg overflow-hidden"
-              style={{ aspectRatio: "18 / 9" }}
-            >
-              {initialCenter ? (
-                <MapComponent
-                  vehicles={mapVehicles}
-                  selectedVehicle={selectedVehicle}
-                  onVehicleSelect={setSelectedVehicle}
-                  initialCenter={initialCenter}
-                  initialZoom={initialZoom ?? undefined}
-                  mapMode={mapMode}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full bg-gray-100">
-                  <div className="text-center">
-                    <MapPin className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">Waiting for GPS data...</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {vehicles.length === 0
-                        ? "No device data"
-                        : "Waiting for location info"}
-                    </p>
-                  </div>
                 </div>
               )}
             </div>
