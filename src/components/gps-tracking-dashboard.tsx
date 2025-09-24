@@ -340,8 +340,8 @@ export function GpsTrackingDashboard() {
         </div>
 
         {/* 悬浮的车辆列表 - 左侧 */}
-        <div className="absolute top-28 left-4 z-[1000] w-80">
-          <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg flex flex-col">
+        <div className="absolute top-28 left-4 bottom-28 z-[1000] w-80 max-h-[calc(100vh-128px)]">
+          <Card className="bg-white/90 backdrop-blur-sm border-gray-200/50 shadow-lg flex flex-col h-full">
             <CardHeader
               className="cursor-pointer pt-2.5 px-2.5 pb-1 flex-shrink-0"
               onClick={() => setSelectedVehicle(null)}
@@ -353,7 +353,7 @@ export function GpsTrackingDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent
-              className="overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
+              className="flex-1 overflow-y-auto cursor-pointer pt-0 px-2.5 pb-2.5"
               style={{ maxHeight: "calc(7 * 128px + 48px)" }}
               onClick={(e) => {
                 // 点击空白处取消选中
