@@ -255,14 +255,7 @@ export function GpsTrackingDashboard() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            GPS Vehicle Tracking
-          </h1>
-          <p className="text-muted-foreground">
-            Real-time fleet location and status monitoring
-          </p>
-        </div>
+        <div></div>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -439,22 +432,14 @@ export function GpsTrackingDashboard() {
 
         {/* Map */}
         <Card>
-          <CardHeader>
+          <CardHeader className="p-1">
             <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
-                Real-time Map
-                {selectedVehicle && (
-                  <Badge variant="outline" className="ml-2">
-                    {selectedVehicle.name}
-                  </Badge>
-                )}
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"></CardTitle>
 
               {/* 保留简洁标题，不再放置额外切换按钮 */}
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-1">
             <div
               className="w-full rounded-lg overflow-hidden"
               style={{ aspectRatio: "18 / 9" }}
@@ -485,70 +470,6 @@ export function GpsTrackingDashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Selected Vehicle Details */}
-      {selectedVehicle && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Navigation className="w-5 h-5" />
-              {selectedVehicle.name} - Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">Status</p>
-                <Badge variant={getStatusBadgeVariant(selectedVehicle.status)}>
-                  {selectedVehicle.status}
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">
-                  Battery Level
-                </p>
-                <p
-                  className={`text-xl font-bold ${
-                    selectedVehicle.battery > 50
-                      ? "text-green-600"
-                      : selectedVehicle.battery > 20
-                      ? "text-yellow-600"
-                      : "text-red-600"
-                  }`}
-                >
-                  {selectedVehicle.battery}%
-                </p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">
-                  Current Speed
-                </p>
-                <p className="text-xl font-bold">{selectedVehicle.speed} mph</p>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-500">
-                  Last Updated
-                </p>
-                <p className="text-xl font-bold">
-                  {selectedVehicle.lastUpdate}
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t">
-              <p className="text-sm font-medium text-gray-500 mb-2">
-                GPS Coordinates
-              </p>
-              <p className="text-lg font-mono">
-                {selectedVehicle.lat !== 0 && selectedVehicle.lng !== 0
-                  ? `${selectedVehicle.lat.toFixed(
-                      6
-                    )}, ${selectedVehicle.lng.toFixed(6)}`
-                  : "Location unavailable"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
