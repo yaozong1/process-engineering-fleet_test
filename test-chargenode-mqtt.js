@@ -5,10 +5,10 @@
 
 const mqtt = require('mqtt')
 
-// MQTT 配置 - 使用与后端相同的配置
-const MQTT_URL = 'wss://ff1164418ad24eb180ad099aec7bc5bc.s1.eu.hivemq.cloud:8884/mqtt'
-const MQTT_USERNAME = 'yaozong'
-const MQTT_PASSWORD = 'Hh3341136'
+// MQTT 配置 - 使用环境变量，与后端/前端保持一致
+const MQTT_URL = process.env.MY_PUBLIC_MQTT_URL || process.env.NEXT_PUBLIC_MQTT_URL || 'ws://processengineeringsz.com:8083/mqtt'
+const MQTT_USERNAME = process.env.MY_PUBLIC_MQTT_USERNAME || process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
+const MQTT_PASSWORD = process.env.MY_PUBLIC_MQTT_PASSWORD || process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
 
 console.log('=== 充电桩数据测试脚本 ===')
 console.log(`MQTT URL: ${MQTT_URL}`)

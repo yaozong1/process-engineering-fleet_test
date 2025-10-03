@@ -5,11 +5,11 @@
 
 const mqtt = require('mqtt');
 
-// MQTT连接配置
+// MQTT连接配置（优先环境变量，默认使用 ws://:8083）
 const MQTT_CONFIG = {
-  url: 'wss://ff1164418ad24eb180ad099aec7bc5bc.s1.eu.hivemq.cloud:8884/mqtt',
-  username: 'yaozong',
-  password: 'Hh3341136'
+  url: process.env.MY_PUBLIC_MQTT_URL || process.env.NEXT_PUBLIC_MQTT_URL || 'ws://processengineeringsz.com:8083/mqtt',
+  username: process.env.MY_PUBLIC_MQTT_USERNAME || process.env.NEXT_PUBLIC_MQTT_USERNAME || 'testuser',
+  password: process.env.MY_PUBLIC_MQTT_PASSWORD || process.env.NEXT_PUBLIC_MQTT_PASSWORD || 'Hh3341136'
 };
 
 console.log('🚀 MQTT数据格式示例');
