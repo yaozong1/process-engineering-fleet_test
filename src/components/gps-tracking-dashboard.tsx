@@ -138,11 +138,13 @@ export function GpsTrackingDashboard() {
       // 确定状态
       let vehicleStatus: Vehicle["status"] = "offline";
       if (status.isOnline) {
-        if (lat !== 0 && lng !== 0) {
-          vehicleStatus = speed > 1 ? "active" : "idle";
-        } else {
-          vehicleStatus = "idle";
-        }
+        const thresholdMph = Number(process.env.NEXT_PUBLIC_SPEED_ACTIVE_THRESHOLD || 1);
+        const powerState = (deviceData?.chargingStatus || "").toLowerCase();
+        const isActive =
+          (Number.isFinite(speed) && speed > thresholdMph) ||
+          powerState === "charging" ||
+          powerState === "discharging";
+        vehicleStatus = isActive ? "active" : "idle";
       }
 
       return {

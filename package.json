@@ -10,9 +10,11 @@
     "mqtt:start": "node -e \"fetch('http://localhost:'+(process.env.PORT||'3000')+'/api/mqtt-service',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start'})}).then(r=>r.text()).then(t=>console.log(t)).catch(e=>console.error(e))\"",
     "mqtt:stop": "node -e \"fetch('http://localhost:'+(process.env.PORT||'3000')+'/api/mqtt-service',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})}).then(r=>r.text()).then(t=>console.log(t)).catch(e=>console.error(e))\"",
     "mqtt:status": "node -e \"fetch('http://localhost:'+(process.env.PORT||'3000')+'/api/mqtt-service').then(r=>r.text()).then(t=>console.log(t)).catch(e=>console.error(e))\"",
+  "mqtt:battery": "node send-battery-message.js",
     "lint": "bunx tsc --noEmit && next lint",
     "format": "bunx biome format --write",
-    "cleanup:tracking": "node -e \"require('ts-node/register/transpile-only'); require('./scripts/cleanup-tracking-keys.ts')\""
+    "cleanup:tracking": "node -e \"require('ts-node/register/transpile-only'); require('./scripts/cleanup-tracking-keys.ts')\"",
+    "persist:chargenode": "node ./scripts/persist-chargenode-keys.js"
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.7",

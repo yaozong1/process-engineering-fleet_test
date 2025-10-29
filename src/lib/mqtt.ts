@@ -17,6 +17,7 @@ export interface MQTTBatteryData {
 
 export const mqttEnv = {
   host: process.env.NEXT_PUBLIC_MQTT_HOST || '',
+  url: process.env.NEXT_PUBLIC_MQTT_URL || '',
   username: process.env.NEXT_PUBLIC_MQTT_USERNAME || '',
   password: process.env.NEXT_PUBLIC_MQTT_PASSWORD || '',
   staticClientId: process.env.NEXT_PUBLIC_MQTT_STATIC_CLIENT_ID || '',
@@ -32,8 +33,10 @@ export function buildClientId(): string {
 }
 
 export function wssUrl(): string {
+  // 1) 优先显式 URL（支持 ws:// 或 wss://）
+  if (mqttEnv.url) return mqttEnv.url
+  // 2) 兼容旧配置：由 host 构造标准 wss 路径
   if (!mqttEnv.host) return ''
-  // For instance domain we try standard wss path
   return `wss://${mqttEnv.host}/mqtt`
 }
 

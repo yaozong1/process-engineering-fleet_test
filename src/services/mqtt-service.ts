@@ -34,11 +34,22 @@ class MQTTService {
     }
   >();
 
-  // MQTT配置
+  // MQTT配置（优先 MY_PUBLIC_*，回退 NEXT_PUBLIC_*，再回退通用 MQTT_*）
   private readonly MQTT_URL =
-    process.env.NEXT_PUBLIC_MQTT_URL || "mqtt://broker.emqx.io:1883";
-  private readonly MQTT_USERNAME = process.env.NEXT_PUBLIC_MQTT_USERNAME || "";
-  private readonly MQTT_PASSWORD = process.env.NEXT_PUBLIC_MQTT_PASSWORD || "";
+    process.env.MY_PUBLIC_MQTT_URL ||
+    process.env.NEXT_PUBLIC_MQTT_URL ||
+    process.env.MQTT_URL ||
+    "mqtt://broker.emqx.io:1883";
+  private readonly MQTT_USERNAME =
+    process.env.MY_PUBLIC_MQTT_USERNAME ||
+    process.env.NEXT_PUBLIC_MQTT_USERNAME ||
+    process.env.MQTT_USERNAME ||
+    "";
+  private readonly MQTT_PASSWORD =
+    process.env.MY_PUBLIC_MQTT_PASSWORD ||
+    process.env.NEXT_PUBLIC_MQTT_PASSWORD ||
+    process.env.MQTT_PASSWORD ||
+    "";
 
   // 订阅主题
   private readonly BATTERY_TOPICS = ["fleet/+/battery"];
@@ -99,26 +110,33 @@ class MQTTService {
       return false;
     }
 
-    // 检查是否为相同数据且时间间隔很短（30秒内）
+    // 30秒窗口内：若 SOC/Voltage/GPS 三者均“未发生有效变化”，视为重复
     const timeDiff = now - lastData.timestamp;
-    const isSameData =
-      Math.abs(lastData.soc - soc) < 0.1 &&
-      Math.abs(lastData.voltage - voltage) < 0.01 &&
-      Math.abs(lastData.temperature - temperature) < 0.1;
-    // GPS 相似阈值（约 ~11m）
+    // 变化阈值
+    const socChanged =
+      typeof soc === "number" && typeof lastData.soc === "number"
+        ? Math.abs(lastData.soc - soc) >= 0.1
+        : false;
+    const voltageChanged =
+      typeof voltage === "number" && typeof lastData.voltage === "number"
+        ? Math.abs(lastData.voltage - voltage) >= 0.01
+        : false;
+    // GPS 相似阈值（约 ~11m）；若一有一无，视为发生变化
     const hasGps = gpsLat != null && gpsLng != null;
     const lastHasGps = lastData.gpsLat != null && lastData.gpsLng != null;
-    const isSameGps =
-      hasGps && lastHasGps
-        ? Math.abs((lastData.gpsLat as number) - (gpsLat as number)) < 0.0001 &&
-          Math.abs((lastData.gpsLng as number) - (gpsLng as number)) < 0.0001
-        : !hasGps && !lastHasGps; // 两次都没有GPS，也视为同一GPS
+    const gpsChanged = hasGps && lastHasGps
+      ? (Math.abs((lastData.gpsLat as number) - (gpsLat as number)) >= 0.0001 ||
+         Math.abs((lastData.gpsLng as number) - (gpsLng as number)) >= 0.0001)
+      : hasGps !== lastHasGps;
 
-    if (isSameData && isSameGps && timeDiff < 30000) {
-      // 30秒内电池与GPS均未变化，视为重复
+    const anyChanged = socChanged || voltageChanged || gpsChanged;
+
+    if (!anyChanged && timeDiff < 30000) {
+      // 30秒内 SOC/电压/GPS 均未发生有效变化，视为重复
       this.log(
-        `🔄 检测到设备 ${deviceId} 的重复数据，跳过存储 (SOC: ${soc}%, 电压: ${voltage}V, 温度: ${temperature}°C)`
+        `🔄 检测到设备 ${deviceId} 的重复数据，跳过存储 (SOC: ${soc}%, 电压: ${voltage}V, GPS: ${hasGps ? `${gpsLat},${gpsLng}` : 'none'})`
       );
+      // 不更新 lastDataMap，保持基准不变
       return true;
     }
 
@@ -155,11 +173,10 @@ class MQTTService {
     }
 
     this.log("Starting MQTT service...");
-    this.log(
-      `MQTT Config: url=${this.MQTT_URL ? "configured" : "missing"}, username=${
-        this.MQTT_USERNAME ? "configured" : "missing"
-      }`
-    );
+    // 打印更明确的配置（隐藏密码）
+    const safeUrl = this.MQTT_URL;
+    const safeUser = this.MQTT_USERNAME ? "configured" : "missing";
+    this.log(`MQTT Config => url: ${safeUrl}, username: ${safeUser}`);
 
     await this.connect();
 
@@ -441,14 +458,18 @@ class MQTTService {
               (data as any).lng ?? (data as any).lon ?? (data as any).longitude
             );
 
-      // 检查是否为重复数据（只有当所有关键数据都有效时才检查；GPS变化将视为非重复）
-      if (soc !== null && voltage !== null && temperature !== null) {
+      // 检查是否为重复数据：只要 SOC / 电压 / GPS 任一满足变化，即判为“有效数据”
+      const hasComparable =
+        soc !== null ||
+        voltage !== null ||
+        (gpsLat != null && gpsLng != null);
+      if (hasComparable) {
         if (
           this.isDuplicateData(
             deviceId,
-            soc,
-            voltage,
-            temperature,
+            soc as any,
+            voltage as any,
+            temperature as any,
             gpsLat,
             gpsLng
           )

@@ -45,12 +45,30 @@ export async function POST(request: NextRequest) {
     
     // 存储到Redis List（与battery/GPS数据存储方式一致）
     await redis.lpush(redisKey, JSON.stringify(chargeNodeData))
-    
-    // 保留最近200条记录（与telemetry相同）
-    await redis.ltrim(redisKey, 0, 199)
-    
-    // 设置过期时间为24小时
-    await redis.expire(redisKey, 24 * 60 * 60)
+
+    // 历史长度可配置（默认200）
+    const maxHistoryEnv = process.env.CHARGENODE_MAX_HISTORY
+    const maxHistory = Number.isFinite(Number(maxHistoryEnv)) && Number(maxHistoryEnv) > 0
+      ? Number(maxHistoryEnv)
+      : 200
+    // ltrim 的 end 为 0-based，所以保留 0..(maxHistory-1)
+    await redis.ltrim(redisKey, 0, Math.max(1, maxHistory) - 1)
+
+    // TTL 可配置：
+    // - CHARGENODE_TTL_SECONDS <= 0 或未设置时，可选择关闭 TTL（PERSIST）或使用默认
+    // - 默认改为30天，避免频繁过期导致“历史消失”的错觉
+    const ttlEnv = process.env.CHARGENODE_TTL_SECONDS
+    const ttlSecondsParsed = ttlEnv !== undefined ? Number(ttlEnv) : NaN
+    const ttlSeconds = Number.isFinite(ttlSecondsParsed)
+      ? ttlSecondsParsed
+      : 30 * 24 * 60 * 60 // 默认30天
+
+    if (ttlSeconds <= 0) {
+      // 关闭过期：清除已有 TTL，保留历史
+      try { await (redis as any).persist(redisKey) } catch (_) { /* Upstash 客户端支持 persist，忽略异常以兼容 */ }
+    } else {
+      await redis.expire(redisKey, Math.floor(ttlSeconds))
+    }
 
     console.log(`[Charging Station API] ✅ Stored data for station ${stationId}`)
 

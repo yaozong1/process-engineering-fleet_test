@@ -742,8 +742,17 @@ export const DeviceDataProvider: React.FC<DeviceDataProviderProps> = ({
     // 立即执行一次
     refreshAllDevices();
 
-    // 设置定时轮询
-    pollingIntervalRef.current = setInterval(refreshAllDevices, 5000); // 5秒轮询
+    // 读取轮询间隔（优先环境变量，默认10000ms）
+    let pollInterval = 10000;
+    if (typeof window !== "undefined") {
+      const envInterval = (window as any).NEXT_PUBLIC_POLL_INTERVAL_MS || process.env.NEXT_PUBLIC_POLL_INTERVAL_MS;
+      if (envInterval && !isNaN(Number(envInterval))) {
+        pollInterval = Number(envInterval);
+      }
+    } else if (process.env.NEXT_PUBLIC_POLL_INTERVAL_MS && !isNaN(Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS))) {
+      pollInterval = Number(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS);
+    }
+    pollingIntervalRef.current = setInterval(refreshAllDevices, pollInterval);
   }, [refreshAllDevices]);
 
   // 停止轮询
